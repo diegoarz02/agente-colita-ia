@@ -104,6 +104,8 @@
   /* Los dos del ciclo 10 destacan: son los que va a usar a diario. */
   .rapida.estudio{border-color:color-mix(in srgb,#566e98 45%,var(--borde));
     color:color-mix(in srgb,#8fa6cc 70%,var(--plomo))}
+  .rapida.negocio{border-color:color-mix(in srgb,#3f9d6d 45%,var(--borde));
+    color:color-mix(in srgb,#63c294 70%,var(--plomo))}
 
   /* ── panel ── */
   #panel{position:relative;z-index:4;flex:1 1 auto;display:none;flex-direction:column;
@@ -181,10 +183,10 @@
     </div>
     <div id="orbe" role="button" tabindex="0"><canvas id="lienzo" width="476" height="476"></canvas></div>
     <div class="med der">
-      <div class="m"><div class="et"><span>notas</span><span class="val" id="v-notas">—</span></div>
+      <div class="m"><div class="et"><span id="et-notas">notas</span><span class="val" id="v-notas">—</span></div>
         <div class="riel"><div class="lleno" id="b-notas" style="width:100%"></div></div></div>
-      <div class="m"><div class="et"><span>disco</span><span class="val" id="v-disco">—</span></div>
-        <div class="riel"><div class="lleno" id="b-disco"></div></div></div>
+      <div class="m"><div class="et"><span id="et-bat">batería</span><span class="val" id="v-bat">—</span></div>
+        <div class="riel"><div class="lleno" id="b-bat"></div></div></div>
     </div>
   </div>
 
@@ -193,6 +195,7 @@
   <div id="acciones">
     <button class="rapida estudio" data-di="Quiero estudiar. Pregúntame de cuál de mis seis cursos del décimo ciclo se trata — enuméramelos — y qué quiero de él: teoría, referencias, código o explicarlo en simple. No busques nada todavía: primero pregunta.">estudiar</button>
     <button class="rapida estudio" data-di="Tengo una duda de estadística. Pregúntame cuál es antes de responder. Cuando respondas, hazlo con rigor: define, da el supuesto que puede romperse y, si buscas, cita las fuentes al final.">estadística</button>
+    <button class="rapida negocio" data-di="Busca en la web qué negocios se pueden arrancar HOY con cero capital y que estén dando dinero de verdad ahora mismo, no hace tres años. Propón tres o cuatro concretos, y de cada uno dime: qué es exactamente, por qué funciona en este momento, qué necesito de mí (tiempo, habilidad, herramienta — nada de dinero), cuánto puede dejar al mes y en cuánto tiempo se ven los primeros soles. Tienes mi perfil: estadística, ciencia de datos, IA, Python y R, y sé automatizar. Prioriza lo que aproveche eso. Nada de encuestas pagadas ni humo. Al final pregúntame cuál me interesa para bajarlo a un plan.">negocio</button>
     <button class="rapida" data-di="¿Cómo está la laptop?">estado</button>
     <button class="rapida" data-di="¿Qué tengo pendiente hoy? Mira mi calendario y mis correos sin leer.">día</button>
     <button class="rapida" data-di="Resume en qué quedamos con la tesis según mis notas.">tesis</button>
@@ -203,7 +206,7 @@
 
   <div id="panel">
     <div id="barra"><span id="contexto">general</span>
-      <span><button class="mini" id="copiar">copiar</button><button class="mini" id="limpiar">limpiar</button><button class="mini peligro" id="apagar">cerrar colita</button></span></div>
+      <span><button class="mini" id="foco" title="Sesión de estudio con aviso hablado">foco</button><button class="mini" id="copiar">copiar</button><button class="mini" id="limpiar">limpiar</button><button class="mini peligro" id="apagar">cerrar colita</button></span></div>
     <div id="salida"><span class="sis">Colita lista.</span></div>
     <div id="fila">
       <input id="texto" placeholder="Dime algo…" autocomplete="off">
@@ -379,8 +382,25 @@ function pinta(id,p,t){const b=document.getElementById('b-'+id),v=document.getEl
   b.classList.toggle('alerta',mal); v.classList.toggle('alerta',mal)}
 async function medir(){if(!hayApi())return;
   try{const m=await pywebview.api.metricas();
-    pinta('cpu',m.cpu,m.cpu+'%'); pinta('ram',m.ram,m.ram+'%'); pinta('disco',m.disco,m.disco+'%');
-    document.getElementById('v-notas').textContent=m.notas;
+    pinta('cpu',m.cpu,m.cpu+'%'); pinta('ram',m.ram,m.ram+'%');
+
+    /* Notas: el número total y, si hoy creciste, cuánto. Ver el cerebro crecer
+       es lo que hace que apetezca alimentarlo. */
+    document.getElementById('v-notas').textContent=
+      m.notas + (m.notas_hoy?' (+'+m.notas_hoy+')':'');
+    document.getElementById('et-notas').textContent=m.notas_hoy?'notas hoy':'notas';
+
+    /* Batería si hay; en su defecto, disco. Un portátil sin batería es un
+       escritorio, y ahí el disco informa más. */
+    const et=document.getElementById('et-bat'), b=m.bateria;
+    if(b){et.textContent=b.enchufada?'cargando':'batería';
+      pinta('bat',b.pct,b.pct+'%');
+      /* Enchufada al 30 % no es una alerta; a 30 % sin enchufar, sí. */
+      const mal=!b.enchufada&&b.pct<=20;
+      document.getElementById('b-bat').classList.toggle('alerta',mal);
+      document.getElementById('v-bat').classList.toggle('alerta',mal);
+    }else{et.textContent='disco'; pinta('bat',m.disco,m.disco+'%')}
+
     document.getElementById('contexto').textContent=m.tema;
   }catch(e){}}
 setTimeout(medir,900); setInterval(medir,8000);
@@ -393,18 +413,50 @@ async function verClima(){if(!hayApi())return;
   }catch(e){}}
 setTimeout(verClima,1800); setInterval(verClima,600000);
 
-/* Cuenta atrás para el inicio de clases del décimo ciclo. Se calcula en el
-   navegador: no hace falta molestar a Python para restar dos fechas. */
-const INICIO_CLASES=new Date(2026,7,24);      // 24 de agosto de 2026 (mes 0-indexado)
-function verCuenta(){
+/* Ese hueco tiene dos vidas. Mientras hay una sesión de estudio corriendo
+   muestra lo que queda —que es lo único que quieres mirar en ese rato—, y el
+   resto del tiempo el estado del ciclo: cuenta atrás antes del 24 de agosto y
+   número de semana después, que sí sirve todo el semestre. */
+const INICIO_CLASES=new Date(2026,7,24);      // 24 ago 2026 (mes 0-indexado)
+
+function textoCiclo(){
   const hoy=new Date(), h0=new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate());
-  const d=Math.round((INICIO_CLASES-h0)/86400000), e=document.getElementById('cuenta');
-  e.className='';
-  if(d>1){e.textContent='clases en '+d+' días'; if(d<=7)e.className='cerca'}
-  else if(d===1){e.textContent='clases mañana'; e.className='hoy'}
-  else if(d===0){e.textContent='hoy empiezan clases'; e.className='hoy'}
-  else{e.textContent='ciclo 10 · semana '+Math.floor(-d/7+1)}}
-verCuenta(); setInterval(verCuenta,3600000);
+  const d=Math.round((INICIO_CLASES-h0)/86400000);
+  if(d>1)  return ['clases en '+d+' días', d<=7?'cerca':''];
+  if(d===1)return ['clases mañana','hoy'];
+  if(d===0)return ['hoy empiezan clases','hoy'];
+  return ['ciclo 10 · semana '+(Math.floor(-d/7)+1),''];
+}
+
+let focoActivo=false;
+async function verCuenta(){
+  const e=document.getElementById('cuenta');
+  if(hayApi()){
+    try{const f=await pywebview.api.estado_foco();
+      focoActivo=!!f.activo;
+      if(f.activo){
+        const m=Math.floor(f.segundos/60), s=f.segundos%60;
+        e.textContent='foco '+m+':'+String(s).padStart(2,'0')
+          +(f.asunto?' · '+f.asunto:'');
+        e.className=f.segundos<60?'hoy':'cerca';
+        return}
+    }catch(err){}
+  }
+  const [t,c]=textoCiclo(); e.textContent=t; e.className=c;
+}
+verCuenta(); setInterval(verCuenta,1000);
+
+/* Sesión de estudio. Avisa hablando al terminar: no hace falta mirar nada. */
+document.getElementById('foco').addEventListener('click',async()=>{
+  if(!hayApi())return;
+  if(focoActivo){await pywebview.api.cancelar_foco();
+    linea('<span class="sis">Sesión cancelada.</span>'); verCuenta(); return}
+  const r=prompt('¿Cuántos minutos y de qué?\nEjemplo: 50 bayesiano','25');
+  if(!r)return;
+  const m=parseInt(r,10)||25, asunto=r.replace(/^\s*\d+\s*/,'').trim();
+  const d=await pywebview.api.iniciar_foco(m,asunto);
+  linea('<span class="sis">Foco: '+esc(d)+'. Te aviso al terminar.</span>');
+  verCuenta()});
 
 function abrir(){body.classList.add('abierto');
   if(hayApi())pywebview.api.redimensionar(true); setTimeout(()=>texto.focus(),140)}

@@ -37,6 +37,58 @@ if os.name == "nt":
     }
 
 
+def _carpetas_reales() -> dict[str, Path]:
+    """Dónde están de verdad Documentos y Escritorio en ESTA máquina.
+
+    No se pueden dar por hechas: con OneDrive activado, Windows las redirige.
+    En la de Diego, `Desktop` apunta a `OneDrive\\Documentos\\Datos adjuntos\\
+    Desktop` y `Documents` a `OneDrive\\Documentos`, así que `~/Desktop` no
+    existe. Buscarlo ahí es la razón de que Colita dijera "no encuentro nada".
+
+    La verdad está en el registro, en User Shell Folders.
+    """
+    casa = Path.home()
+    sitios: dict[str, Path] = {}
+
+    if os.name == "nt":
+        try:
+            import winreg
+
+            clave = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, clave) as k:
+                for nombre, etiqueta in (("Personal", "documentos"),
+                                         ("Desktop", "escritorio"),
+                                         ("{374DE290-123F-4565-9164-39C4925E467B}", "descargas"),
+                                         ("My Pictures", "imagenes")):
+                    try:
+                        crudo, _ = winreg.QueryValueEx(k, nombre)
+                        p = Path(os.path.expandvars(crudo))
+                        if p.exists():
+                            sitios[etiqueta] = p
+                    except OSError:
+                        continue
+        except Exception:
+            pass
+
+    # Respaldos, por si el registro no dijo nada.
+    for etiqueta, p in (("documentos", casa / "Documents"),
+                        ("escritorio", casa / "Desktop"),
+                        ("descargas", casa / "Downloads"),
+                        ("onedrive", casa / "OneDrive")):
+        if etiqueta not in sitios and p.exists():
+            sitios[etiqueta] = p
+
+    if (casa / "OneDrive").exists():
+        sitios.setdefault("onedrive", casa / "OneDrive")
+    sitios["vault"] = VAULT
+    sitios["colita"] = casa / "colita"
+    sitios["casa"] = casa
+    return sitios
+
+
+CARPETAS = _carpetas_reales()
+
+
 def _ok(texto: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": texto}]}
 
@@ -140,6 +192,207 @@ async def poner_musica(args: dict[str, Any]) -> dict[str, Any]:
     if destino == busqueda:
         return _ok(f"No pude resolver el vídeo, así que te abrí la búsqueda de «{q}».")
     return _ok(f"Puesto lo primero que salió de «{q}».")
+
+
+@tool(
+    "buscar_archivo",
+    "Busca archivos por nombre en las carpetas de Diego (Documentos, Escritorio, "
+    "Descargas, OneDrive, vault y sus proyectos). Devuelve las rutas y cuándo se "
+    "modificaron. Úsalo antes de decir que no encuentras algo.",
+    {"nombre": str, "carpeta": str},
+)
+async def buscar_archivo(args: dict[str, Any]) -> dict[str, Any]:
+    """Glob sabe buscar, pero hay que saber DÓNDE. Esto lleva el mapa dentro."""
+    patron = str(args.get("nombre", "")).strip()
+    if not patron:
+        return _ok("¿Qué archivo busco?")
+    # "ENAPRES*" exigiría que el nombre EMPIECE así, y los archivos de Diego se
+    # llaman "TESIS MONTERO AGUA ENAPRES.docx". Nadie busca pensando en anclas:
+    # se busca por "que contenga". Un patrón de extensión (*.pdf) se respeta.
+    if not any(c in patron for c in "*?"):
+        patron = f"*{patron}*"
+    elif not patron.startswith("*"):
+        patron = "*" + patron
+
+    casa = Path.home()
+    raices = [
+        CARPETAS.get("documentos", casa / "Documents"),
+        CARPETAS.get("escritorio", casa / "Desktop"),
+        CARPETAS.get("descargas", casa / "Downloads"),
+        casa / "Documents",                 # la de siempre, además de la redirigida
+        VAULT, casa / "colita",
+    ]
+    if "onedrive" in CARPETAS:
+        raices.append(CARPETAS["onedrive"])
+    # Sin duplicados y sin carpetas contenidas en otra ya listada.
+    unicas: list[Path] = []
+    for r in raices:
+        if r.exists() and not any(str(r).lower().startswith(str(u).lower() + os.sep)
+                                  for u in unicas):
+            if r not in unicas:
+                unicas.append(r)
+    raices = unicas
+
+    pedida = str(args.get("carpeta", "")).strip()
+    if pedida:
+        p = CARPETAS.get(pedida.lower(), Path(pedida))
+        if p.exists():
+            raices = [p]
+
+    vistos: list[tuple[float, Path]] = []
+    for raiz in raices:
+        if not raiz.exists():
+            continue
+        try:
+            for f in raiz.rglob(patron):
+                if f.is_file() and not any(
+                    x in f.parts for x in (".git", "__pycache__", "node_modules", ".venv")
+                ):
+                    vistos.append((f.stat().st_mtime, f))
+                    if len(vistos) > 400:
+                        break
+        except Exception:
+            continue
+
+    if not vistos:
+        return _ok(f"No encontré nada que se parezca a «{patron}» en sus carpetas.")
+
+    vistos.sort(reverse=True)              # lo más reciente primero: casi siempre es eso
+    lineas = [
+        f"{f}  ({dt.datetime.fromtimestamp(m):%Y-%m-%d %H:%M}, "
+        f"{f.stat().st_size / 1024:.0f} KB)"
+        for m, f in vistos[:15]
+    ]
+    extra = f"\n… y {len(vistos) - 15} más." if len(vistos) > 15 else ""
+    return _ok(f"{len(vistos)} coincidencias, de más reciente a más antigua:\n"
+               + "\n".join(lineas) + extra)
+
+
+@tool(
+    "listar_carpeta",
+    "Muestra qué hay dentro de una carpeta de Diego: archivos, tamaños y fechas.",
+    {"ruta": str},
+)
+async def listar_carpeta(args: dict[str, Any]) -> dict[str, Any]:
+    ruta = str(args.get("ruta", "")).strip().strip('"')
+    if not ruta:
+        return _ok("¿Qué carpeta miro?")
+    # Atajos por nombre, resueltos con las carpetas REALES de esta máquina.
+    atajos = dict(CARPETAS)
+    atajos.update({
+        "documents": CARPETAS.get("documentos", Path.home() / "Documents"),
+        "desktop": CARPETAS.get("escritorio", Path.home() / "Desktop"),
+        "downloads": CARPETAS.get("descargas", Path.home() / "Downloads"),
+        "obsidian": VAULT,
+    })
+    p = atajos.get(ruta.lower(), Path(ruta))
+    if not p.exists():
+        return _ok(f"No existe: {p}")
+    if p.is_file():
+        return _ok(f"{p} es un archivo de {p.stat().st_size / 1024:.0f} KB.")
+
+    try:
+        hijos = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+    except PermissionError:
+        return _ok(f"Windows no me deja leer {p}.")
+
+    lineas = []
+    for h in hijos[:60]:
+        try:
+            m = dt.datetime.fromtimestamp(h.stat().st_mtime).strftime("%Y-%m-%d")
+            if h.is_dir():
+                lineas.append(f"[carpeta] {h.name}/   {m}")
+            else:
+                lineas.append(f"          {h.name}   {h.stat().st_size / 1024:.0f} KB   {m}")
+        except Exception:
+            continue
+    extra = f"\n… y {len(hijos) - 60} más." if len(hijos) > 60 else ""
+    return _ok(f"{p}  ({len(hijos)} elementos)\n" + "\n".join(lineas) + extra)
+
+
+@tool(
+    "abrir_carpeta",
+    "Abre una carpeta en el Explorador de Windows, o selecciona un archivo dentro.",
+    {"ruta": str},
+)
+async def abrir_carpeta(args: dict[str, Any]) -> dict[str, Any]:
+    ruta = str(args.get("ruta", "")).strip().strip('"')
+    p = Path(ruta)
+    if not p.exists():
+        return _ok(f"No existe: {p}")
+    try:
+        if p.is_file():
+            subprocess.Popen(["explorer", "/select,", str(p)])
+            return _ok(f"Abrí la carpeta con {p.name} seleccionado.")
+        subprocess.Popen(["explorer", str(p)])
+        return _ok(f"Abrí {p}.")
+    except Exception as e:
+        return _ok(f"No pude abrir el Explorador: {e}")
+
+
+@tool(
+    "leer_documento",
+    "Lee un PDF, Word, Excel, CSV o texto y devuelve su contenido para poder "
+    "resumirlo o analizarlo. Para PDF y Word extrae el texto.",
+    {"ruta": str, "paginas": str},
+)
+async def leer_documento(args: dict[str, Any]) -> dict[str, Any]:
+    """`Read` no abre PDF ni Word. Esto sí, que es la mitad de lo que le pasa."""
+    ruta = str(args.get("ruta", "")).strip().strip('"')
+    p = Path(ruta)
+    if not p.exists():
+        return _ok(f"No existe: {p}. Prueba a buscarlo con `buscar_archivo`.")
+
+    ext = p.suffix.lower()
+    TOPE = 60_000        # suficiente para resumir; más satura la conversación
+    try:
+        if ext == ".pdf":
+            from pypdf import PdfReader
+
+            lector = PdfReader(str(p))
+            rango = str(args.get("paginas", "")).strip()
+            hojas = range(len(lector.pages))
+            if rango and "-" in rango:
+                a, _, b = rango.partition("-")
+                hojas = range(max(0, int(a) - 1), min(len(lector.pages), int(b)))
+            texto = "\n".join(
+                f"--- página {i + 1} ---\n{lector.pages[i].extract_text() or ''}"
+                for i in hojas
+            )
+            cab = f"{p.name} · {len(lector.pages)} páginas\n\n"
+        elif ext == ".docx":
+            import docx
+
+            d = docx.Document(str(p))
+            texto = "\n".join(x.text for x in d.paragraphs)
+            cab = f"{p.name} · {len(d.paragraphs)} párrafos\n\n"
+        elif ext in {".xlsx", ".xls"}:
+            import pandas as pd
+
+            hojas = pd.read_excel(p, sheet_name=None)
+            partes = []
+            for nombre, df in hojas.items():
+                partes.append(f"--- hoja «{nombre}» · {df.shape[0]}x{df.shape[1]} ---\n"
+                              f"{df.head(20).to_string()}")
+            texto = "\n\n".join(partes)
+            cab = f"{p.name} · {len(hojas)} hojas\n\n"
+        elif ext in {".csv", ".tsv"}:
+            import pandas as pd
+
+            df = pd.read_csv(p, sep=None, engine="python", nrows=200)
+            texto = df.to_string()
+            cab = f"{p.name} · columnas: {', '.join(map(str, df.columns))}\n\n"
+        else:
+            texto = p.read_text(encoding="utf-8", errors="replace")
+            cab = f"{p.name}\n\n"
+    except ImportError as e:
+        return _ok(f"Me falta una librería para abrir {ext}: {e}")
+    except Exception as e:
+        return _ok(f"No pude leer {p.name}: {e}")
+
+    if len(texto) > TOPE:
+        texto = texto[:TOPE] + f"\n\n[…cortado, el documento sigue. Pídeme un rango de páginas.]"
+    return _ok(cab + texto)
 
 
 @tool("estado_maquina", "Uso de CPU, memoria y disco de la laptop.", {})
@@ -460,6 +713,7 @@ servidor = create_sdk_mcp_server(
     version="1.0.0",
     tools=[
         volumen, abrir_app, poner_musica, estado_maquina,
+        buscar_archivo, listar_carpeta, abrir_carpeta, leer_documento,
         guardar_en_vault, enlazar_en_moc, salud_del_vault, nota_de_clase,
         reindexar_vault,
         crear_excel, crear_html, analizar_datos,
@@ -469,6 +723,8 @@ servidor = create_sdk_mcp_server(
 NOMBRES = [
     "mcp__colita__volumen", "mcp__colita__abrir_app", "mcp__colita__poner_musica",
     "mcp__colita__estado_maquina",
+    "mcp__colita__buscar_archivo", "mcp__colita__listar_carpeta",
+    "mcp__colita__abrir_carpeta", "mcp__colita__leer_documento",
     "mcp__colita__guardar_en_vault", "mcp__colita__enlazar_en_moc",
     "mcp__colita__salud_del_vault", "mcp__colita__nota_de_clase",
     "mcp__colita__reindexar_vault",

@@ -70,9 +70,20 @@ antes de soltarlo.
 
 Cuando busques algo en las notas de Diego, usa el servidor `obsidian-rag`.
 
-Tienes acceso de lectura al disco de Diego: Documents, OneDrive\\Documentos y
-Downloads. Cuando te pida buscar un archivo o resumir un documento, usa Glob
-para localizarlo y Read para leerlo.
+Tienes acceso a las carpetas de Diego. Cuando te pida algo de sus archivos,
+**usa tus poderes propios antes que Glob y Read**, que no saben donde mirar ni
+abren PDF:
+
+- `buscar_archivo`: lo busca en Documentos, Escritorio, Descargas, OneDrive y
+  el vault, y te lo da ordenado por fecha. Uselo SIEMPRE antes de decir que no
+  encuentras algo.
+- `listar_carpeta`: que hay dentro. Entiende atajos: "documentos", "escritorio",
+  "descargas", "vault", "colita", "onedrive".
+- `abrir_carpeta`: se la abre en el Explorador, con el archivo seleccionado.
+- `leer_documento`: PDF, Word, Excel, CSV y texto. `Read` no abre PDF ni Word;
+  esto si.
+
+Di siempre la ruta completa de lo que abriste, para que el pueda comprobarlo.
 
 # Fuentes
 
@@ -219,6 +230,10 @@ LIBRE_PATRONES = (
     "abrir_app", "ventana", "window", "poner_musica",
     # el vault: crear y enlazar notas es reversible y es su trabajo
     "guardar_en_vault", "enlazar_en_moc", "salud_del_vault", "nota_de_clase",
+    # mirar y abrir cosas de Diego: leer es libre, y abrir el Explorador o una
+    # app no cambia nada. Ojo: "abrir_carpeta" no cae en CONFIRMAR porque no
+    # contiene ninguno de esos patrones — es a proposito.
+    "buscar_archivo", "listar_carpeta", "abrir_carpeta", "leer_documento",
 )
 
 # CONFIRMAR: sale de la maquina, borra, o cambia el sistema.

@@ -415,18 +415,91 @@ class Api:
         import psutil
 
         vault = Path(r"C:\Users\diego\Documents\Obsidian Vault\Claude Diego")
+        notas, hoy = 0, 0
         try:
-            notas = sum(1 for _ in vault.rglob("*.md"))
+            corte = time.time() - 86400
+            for p in vault.rglob("*.md"):
+                notas += 1
+                if p.stat().st_mtime > corte:
+                    hoy += 1
         except Exception:
-            notas = 0
+            pass
+
+        # Bateria: en un portatil es de lo poco que se mira a diario.
+        bat = None
+        try:
+            b = psutil.sensors_battery()
+            if b is not None:
+                bat = {"pct": round(b.percent), "enchufada": bool(b.power_plugged)}
+        except Exception:
+            pass
+
         d = psutil.disk_usage("C:\\")
         return {
             "cpu": round(psutil.cpu_percent(interval=0.15)),
             "ram": round(psutil.virtual_memory().percent),
             "disco": round(d.percent),
             "notas": notas,
+            "notas_hoy": hoy,
+            "bateria": bat,
             "tema": getattr(self._cerebro, "tema", "general"),
         }
+
+    # ------------------------------------------------------- foco de estudio
+    # Un temporizador que AVISA HABLANDO es distinto de uno que parpadea: no
+    # hay que estar mirando la pantalla para enterarse, que es justo el punto
+    # de estudiar concentrado.
+
+    def iniciar_foco(self, minutos: int, asunto: str = "") -> str:
+        try:
+            minutos = max(1, min(180, int(minutos)))
+        except Exception:
+            minutos = 25
+        asunto = (asunto or "").strip()
+
+        anterior = getattr(self, "_foco", None)
+        if anterior is not None and anterior.is_alive():
+            self._parar_foco.set()
+
+        self._parar_foco = threading.Event()
+        self._fin_foco = time.time() + minutos * 60
+        self._asunto_foco = asunto
+        parar = self._parar_foco
+
+        def contar() -> None:
+            if parar.wait(minutos * 60):
+                return                      # lo cancelaron
+            de_que = f" de {asunto}" if asunto else ""
+            voz.hablar(
+                f"Se acabaron los {minutos} minutos{de_que}. "
+                "Levántate un momento y me dices si seguimos.",
+                bloquear=False,
+            )
+            log(f"foco terminado: {minutos} min {asunto!r}", "foco")
+
+        self._foco = threading.Thread(target=contar, daemon=True)
+        self._foco.start()
+        log(f"foco iniciado: {minutos} min {asunto!r}", "foco")
+        return f"{minutos} minutos{' de ' + asunto if asunto else ''}"
+
+    def estado_foco(self) -> dict:
+        fin = getattr(self, "_fin_foco", 0.0)
+        quedan = fin - time.time()
+        hilo = getattr(self, "_foco", None)
+        if quedan <= 0 or hilo is None or not hilo.is_alive():
+            return {"activo": False}
+        return {
+            "activo": True,
+            "segundos": int(quedan),
+            "asunto": getattr(self, "_asunto_foco", ""),
+        }
+
+    def cancelar_foco(self) -> None:
+        p = getattr(self, "_parar_foco", None)
+        if p is not None:
+            p.set()
+        self._fin_foco = 0.0
+        log("foco cancelado", "foco")
 
     def elegir_archivo(self) -> str:
         """Abre el selector de Windows y devuelve la ruta elegida."""
