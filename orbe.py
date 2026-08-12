@@ -51,6 +51,20 @@ if os.name == "nt":
     except Exception:
         pass
 
+    # ── Que Windows la trate como una APP, no como "un Python" ───────────
+    #
+    # En la barra de tareas salia el icono de archivo de Python y se agrupaba
+    # con cualquier otro script. El motivo: sin AppUserModelID propio, Windows
+    # identifica la ventana por su ejecutable, que es `pythonw.exe`.
+    #
+    # Declarar un identificador propio la separa en su propia entrada, con su
+    # icono, y permite anclarla a la barra de tareas como cualquier programa.
+    # TIENE que hacerse antes de crear ninguna ventana.
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Diego.Colita.IA.1")
+    except Exception:
+        pass
+
     _Popen = subprocess.Popen
 
     class _PopenSilencioso(_Popen):
@@ -96,7 +110,10 @@ AQUI = Path(__file__).parent
 # Marca de "cerrada a proposito". La escribe la ✕ y la borra cualquier arranque
 # manual. Solo el vigilante la respeta.
 DESCANSO = AQUI / "descansando.flag"
-CHICO = (480, 400)   # panel de mando: orbe, reloj, medidores, accesos
+# 470 y no 400: con siete accesos rápidos la fila se parte en dos y la de abajo
+# quedaba cortada por el borde de la ventana. La altura tiene que dar para el
+# orbe, los medidores, el estado, DOS filas de botones y el pie.
+CHICO = (480, 470)   # panel de mando: orbe, reloj, medidores, accesos
 GRANDE = (560, 820)  # + la conversacion
 ENORME = (820, 1000)  # para leer respuestas largas sin bizquear
 
@@ -367,11 +384,16 @@ class Api:
         """Segundos que va a tardar en decir la ultima respuesta."""
         return float(getattr(self, "_segundos_voz", 1.6))
 
-    def escuchar(self) -> str:
-        """Graba del microfono y devuelve lo transcrito."""
+    def escuchar(self, seguimiento: bool = False) -> str:
+        """Graba del microfono y devuelve lo transcrito.
+
+        `seguimiento` = es el turno siguiente de una conversacion ya empezada.
+        Ahi no se puede esperar 25 s a que Diego hable: si en 6 s no dice nada,
+        la conversacion se da por terminada.
+        """
         self.silenciar_despertador(True)   # que no se oiga a si misma
         try:
-            texto, tiempos = voz.escuchar()
+            texto, tiempos = voz.escuchar(espera_inicial=6.0 if seguimiento else None)
             log(f"{tiempos} -> {texto!r}", "oido")
             return texto
         except Exception as e:
@@ -379,6 +401,21 @@ class Api:
             return f"__error__ {e}"
         finally:
             self.silenciar_despertador(False)
+
+    def conversacion(self, activa: bool) -> None:
+        """Mientras dura una conversacion, la palabra de activacion se apaga.
+
+        Era el segundo bug que vio Diego: al responderle por voz, el despertador
+        oia su respuesta, creia que lo estaban llamando otra vez y saludaba de
+        nuevo por encima de la conversacion. Dentro de una conversacion ya no
+        hace falta llamarla: ya está escuchando.
+        """
+        activa = bool(activa)
+        if activa == getattr(self, "_conversando", False):
+            return
+        self._conversando = activa
+        self.silenciar_despertador(activa)
+        log("conversación abierta" if activa else "conversación cerrada", "orbe")
 
     # ---------------------------------------------------------------- clima
     # Se pide desde Python y no desde la ventana: asi no depende de CORS ni de
@@ -570,6 +607,75 @@ class Api:
             fallo("no pude interrumpir al cerebro", "orbe")
         return getattr(self, "_ultimo_mio", "")
 
+    # --------------------------------------------------------------- bandeja
+    # Diego tenía razón: si la ventana está escondida y no hay nada en la barra
+    # de tareas, Colita "no existe" y no hay forma de llamarla salvo la palabra
+    # o el atajo. La bandeja del reloj la deja siempre a un clic, sin ocupar
+    # sitio y sin salir en Alt+Tab.
+
+    def iniciar_bandeja(self) -> None:
+        try:
+            import pystray
+            from PIL import Image
+        except Exception:
+            fallo("sin pystray: no habrá icono en la bandeja", "bandeja")
+            return
+
+        icono_png = AQUI / "colita.png"
+        try:
+            imagen = Image.open(icono_png)
+        except Exception:
+            fallo(f"no encuentro {icono_png}; genera el icono con hacer_icono.py", "bandeja")
+            return
+
+        def mostrar(*_):
+            self.activar_por_atajo()
+
+        def esconder(*_):
+            if self._ventana:
+                self._ventana.hide()
+
+        def parar(*_):
+            self.parar()
+
+        def cerrar(*_):
+            self.salir(descansar=True)
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Abrir Colita", mostrar, default=True),
+            pystray.MenuItem("Callar / parar", parar),
+            pystray.MenuItem("Esconder", esconder),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Cerrar Colita", cerrar),
+        )
+        self._bandeja = pystray.Icon(
+            "colita", imagen, "Colita — di «Colita, actívate» o Ctrl+Alt+C", menu
+        )
+        threading.Thread(target=self._bandeja.run, daemon=True).start()
+        log("icono en la bandeja listo", "bandeja")
+
+    def detener_bandeja(self) -> None:
+        b = getattr(self, "_bandeja", None)
+        if b is not None:
+            try:
+                b.stop()
+            except Exception:
+                pass
+
+    def esconder(self) -> str:
+        """La ✕ esconde, no mata. Colita sigue oyendo y queda en la bandeja.
+
+        Antes preguntaba «¿la cierro del todo?» cada vez, y era molesto y
+        equivocado: cerrar de verdad un asistente que tiene que oírte no es lo
+        que quiere nadie al pulsar una ✕. Ahora se va a la bandeja del reloj,
+        que es donde vive este tipo de programa. Para cerrarla del todo está
+        «cerrar colita» en la barra del panel o en el menú de la bandeja.
+        """
+        if self._ventana:
+            self._ventana.hide()
+        log("escondida en la bandeja; sigue escuchando", "orbe")
+        return "ok"
+
     def salir_preguntando(self) -> bool:
         """Cierra, pero preguntando con un dialogo del sistema.
 
@@ -582,9 +688,10 @@ class Api:
         seguro = bool(self._ventana.create_confirmation_dialog(
             "Cerrar a Colita",
             "¿La cierro del todo?\n\n"
-            "Deja de escucharte hasta que la vuelvas a abrir: con el acceso "
-            "directo de Colita, o sola al reiniciar la laptop.\n\n"
-            "Si solo quieres que se calle un momento, usa el botón ■ de parar.",
+            "Deja de escucharte y se quita de la bandeja del reloj. Vuelve con "
+            "el acceso directo de Colita, o sola al reiniciar la laptop.\n\n"
+            "Si solo quieres quitarla de en medio, la ✕ la esconde y sigue "
+            "oyéndote. Si quieres que se calle, el botón ■ de parar.",
         ))
         if seguro:
             self.salir(descansar=True)
@@ -606,6 +713,7 @@ class Api:
         voz.callar()
         self.detener_atajo()
         self.detener_despertador()
+        self.detener_bandeja()
         if self._ventana:
             self._ventana.destroy()
 
@@ -660,18 +768,15 @@ class Api:
             except Exception:
                 pass
 
-            # Primero «activándose», y solo despues el saludo. Diego quiere ver
-            # que le oyo ANTES de que empiece a hablar: el saludo tarda un
-            # segundo largo en sonar y ese silencio parecia que no funcionaba.
-            log("abriendo el panel", "despertador")
-            self._ventana.evaluate_js(
-                "(function(){"
-                " if(!document.body.classList.contains('abierto')){"
-                "   document.getElementById('orbe').click();"
-                " }"
-                " window.colita && window.colita.activando();"
-                "})()"
-            )
+            # NO se abre el panel de conversación. Si Diego la llamó hablando,
+            # es que quiere hablar, no leer: que aparezca de golpe una ventana
+            # grande con el chat es justo lo que él no quería. Se queda en la
+            # bolita, que es su foco. El panel se abre si él hace clic.
+            #
+            # Primero «activándose», y solo después el saludo: ver que le oyó
+            # ANTES de que empiece a sonar es lo que quita la sensación de que
+            # no funciona.
+            self._ventana.evaluate_js("window.colita && window.colita.activando()")
 
             frase = _saludo()
             log(f"saludando: {frase!r}", "despertador")
@@ -679,9 +784,11 @@ class Api:
                 "window.colita && window.colita.saludo(%s)" % json.dumps(frase)
             )
             voz.hablar(frase, bloquear=True)
-            log("abriendo el microfono", "despertador")
-            self._ventana.evaluate_js("document.getElementById('mic').click()")
-            log("listo, te escucho", "despertador")
+
+            # Y a partir de aquí, conversación seguida: ella escucha, responde
+            # y vuelve a escuchar sin que haya que llamarla otra vez.
+            log("conversación abierta, te escucho", "despertador")
+            self._ventana.evaluate_js("window.colita && window.colita.conversar()")
 
         def oido(texto: str) -> None:
             log(f"oigo: {texto!r}", "despertador")
@@ -704,6 +811,44 @@ class Api:
 
 
 _mutex = None
+
+
+def _poner_icono_en_la_ventana() -> None:
+    """Cuelga el .ico de la ventana de Colita.
+
+    `webview.start(icon=...)` no siempre llega a la barra de tareas: ahi manda
+    el icono asociado al HWND. Se busca la ventana por su titulo y se le manda
+    WM_SETICON con el icono grande y el chico. Se reintenta porque la ventana
+    tarda un poco en existir.
+    """
+    if os.name != "nt":
+        return
+    import ctypes
+
+    ico = AQUI / "colita.ico"
+    if not ico.exists():
+        log("no hay colita.ico; genera el icono con hacer_icono.py", "icono")
+        return
+
+    u32 = ctypes.windll.user32
+    IMAGE_ICON, LR_LOADFROMFILE, LR_DEFAULTSIZE = 1, 0x10, 0x40
+    WM_SETICON, ICON_SMALL, ICON_BIG = 0x0080, 0, 1
+
+    for _ in range(40):                      # hasta 20 s
+        hwnd = u32.FindWindowW(None, "Colita")
+        if hwnd:
+            try:
+                for tam, cual in ((16, ICON_SMALL), (32, ICON_BIG)):
+                    h = u32.LoadImageW(None, str(ico), IMAGE_ICON, tam, tam,
+                                       LR_LOADFROMFILE | LR_DEFAULTSIZE)
+                    if h:
+                        u32.SendMessageW(hwnd, WM_SETICON, cual, h)
+                log("icono puesto en la ventana", "icono")
+            except Exception:
+                fallo("no pude poner el icono en la ventana", "icono")
+            return
+        time.sleep(0.5)
+    log("no encontré la ventana para ponerle el icono", "icono")
 
 
 def _soy_la_unica() -> bool:
@@ -794,9 +939,22 @@ def main() -> None:
     colita.pedir_permiso = permiso_grafico
     api.iniciar_atajo()
     api.iniciar_despertador()
-    webview.start()
+    api.iniciar_bandeja()
+    threading.Thread(target=_poner_icono_en_la_ventana, daemon=True).start()
+
+    # Calentar la voz y el oído en segundo plano. Sin esto, el primer saludo
+    # tardaba casi 16 segundos en empezar a sonar y parecía que no funcionaba.
+    def _calentar():
+        try:
+            log(f"calentando motores: {voz.calentar()}", "voz")
+        except Exception:
+            fallo("no pude calentar los motores de voz", "voz")
+
+    threading.Thread(target=_calentar, daemon=True).start()
+    webview.start(icon=str(AQUI / "colita.ico"))
     api.detener_atajo()
     api.detener_despertador()
+    api.detener_bandeja()
 
 
 if __name__ == "__main__":

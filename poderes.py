@@ -83,10 +83,39 @@ def _carpetas_reales() -> dict[str, Path]:
     sitios["vault"] = VAULT
     sitios["colita"] = casa / "colita"
     sitios["casa"] = casa
+
+    # Cualquier carpeta suelta del perfil que valga la pena: proyectos, código,
+    # cursos... Diego trabaja en varias y no todas cuelgan de Documentos.
+    for extra in ("Videos", "Music", "Pictures", "Proyectos", "PROYECTOS",
+                  "repos", "dev", "Escritorio"):
+        p = casa / extra
+        if p.exists():
+            sitios.setdefault(extra.lower(), p)
+
+    # Otras unidades montadas (D:, E:, discos externos).
+    if os.name == "nt":
+        import string
+
+        for letra in string.ascii_uppercase[3:]:      # de la D en adelante
+            u = Path(f"{letra}:\\")
+            try:
+                if u.exists():
+                    sitios[f"unidad {letra.lower()}"] = u
+            except Exception:
+                continue
     return sitios
 
 
 CARPETAS = _carpetas_reales()
+
+# Carpetas que nunca interesan al buscar: son entrañas del sistema y de los
+# programas. Buscar en todo el perfil sin este filtro devuelve basura.
+IGNORAR = frozenset({
+    "AppData", "$Recycle.Bin", "Windows", "Program Files", "Program Files (x86)",
+    ".git", "__pycache__", "node_modules", ".venv", "venv", "env",
+    ".cache", ".conda", ".ipynb_checkpoints", ".vscode", ".gradle", ".nuget",
+    "site-packages", "OneDriveTemp", "$WinREAgent", "System Volume Information",
+})
 
 
 def _ok(texto: str) -> dict[str, Any]:
@@ -178,7 +207,15 @@ async def poner_musica(args: dict[str, Any]) -> dict[str, Any]:
             destino = f"https://www.youtube.com/watch?v={ids[0]}"
             t = re.search(r'"title":\{"runs":\[\{"text":"(.*?)"\}', html)
             if t:
-                titulo = t.group(1).encode().decode("unicode_escape", "replace")
+                # Con `unicode_escape` salía "TitÃ­ Me PreguntÃ³": ese códec
+                # trata los bytes como latin-1. El texto viene con escapes
+                # JSON (í), así que se decodifica con json.
+                import json
+
+                try:
+                    titulo = json.loads(f'"{t.group(1)}"')
+                except Exception:
+                    titulo = t.group(1)
     except Exception:
         pass    # sin red o YouTube cambió el HTML: se abre la búsqueda y ya
 
@@ -224,6 +261,9 @@ async def buscar_archivo(args: dict[str, Any]) -> dict[str, Any]:
     ]
     if "onedrive" in CARPETAS:
         raices.append(CARPETAS["onedrive"])
+    # Todo el perfil, no solo OneDrive. Es lo que Diego pidió el 2026-08-12:
+    # que pueda mirar en cualquier carpeta suya, no en un par elegidas a mano.
+    raices.append(casa)
     # Sin duplicados y sin carpetas contenidas en otra ya listada.
     unicas: list[Path] = []
     for r in raices:
@@ -245,9 +285,12 @@ async def buscar_archivo(args: dict[str, Any]) -> dict[str, Any]:
             continue
         try:
             for f in raiz.rglob(patron):
-                if f.is_file() and not any(
-                    x in f.parts for x in (".git", "__pycache__", "node_modules", ".venv")
-                ):
+                # Fuera el ruido: entrañas de programas, cachés y entornos.
+                # Sin esto, buscar en todo el perfil devuelve miles de archivos
+                # de AppData que a Diego no le sirven de nada.
+                if any(x in f.parts for x in IGNORAR):
+                    continue
+                if f.is_file():
                     vistos.append((f.stat().st_mtime, f))
                     if len(vistos) > 400:
                         break
@@ -393,6 +436,130 @@ async def leer_documento(args: dict[str, Any]) -> dict[str, Any]:
     if len(texto) > TOPE:
         texto = texto[:TOPE] + f"\n\n[…cortado, el documento sigue. Pídeme un rango de páginas.]"
     return _ok(cab + texto)
+
+
+@tool(
+    "portapapeles",
+    "Lee lo que Diego tiene copiado, o copia algo para que él lo pegue. "
+    "accion: leer|copiar. Es la forma más rápida de pasarle un texto largo.",
+    {"accion": str, "texto": str},
+)
+async def portapapeles(args: dict[str, Any]) -> dict[str, Any]:
+    accion = str(args.get("accion", "leer")).lower()
+    try:
+        import tkinter as tk
+
+        raiz = tk.Tk()
+        raiz.withdraw()
+        try:
+            if accion.startswith("cop"):
+                texto = str(args.get("texto", ""))
+                raiz.clipboard_clear()
+                raiz.clipboard_append(texto)
+                raiz.update()
+                return _ok(f"Copiado ({len(texto)} caracteres). Pégalo con Ctrl+V.")
+            contenido = raiz.clipboard_get()
+        finally:
+            raiz.destroy()
+    except Exception as e:
+        return _ok(f"No pude usar el portapapeles: {e}")
+
+    if not contenido.strip():
+        return _ok("El portapapeles está vacío.")
+    if len(contenido) > 20_000:
+        contenido = contenido[:20_000] + "\n[…cortado]"
+    return _ok(f"Tienes copiado esto:\n\n{contenido}")
+
+
+@tool(
+    "recordar_luego",
+    "Pon un recordatorio hablado. Colita lo dice en voz alta cuando toque. "
+    "minutos: dentro de cuánto.",
+    {"minutos": int, "recordatorio": str},
+)
+async def recordar_luego(args: dict[str, Any]) -> dict[str, Any]:
+    """Un recordatorio que SUENA vale mucho más que uno que parpadea."""
+    import threading
+
+    try:
+        minutos = max(1, min(720, int(args.get("minutos", 10))))
+    except Exception:
+        minutos = 10
+    que = str(args.get("recordatorio", "")).strip()
+    if not que:
+        return _ok("¿Qué te recuerdo?")
+
+    def avisar() -> None:
+        try:
+            import sys
+
+            sys.path.insert(0, str(Path(__file__).parent))
+            import voz
+
+            voz.hablar(f"Diego, me pediste que te recordara: {que}", bloquear=False)
+        except Exception:
+            pass
+
+    t = threading.Timer(minutos * 60, avisar)
+    t.daemon = True
+    t.start()
+    cuando = (dt.datetime.now() + dt.timedelta(minutes=minutos)).strftime("%H:%M")
+    return _ok(f"Listo. Te lo digo a las {cuando}: «{que}».")
+
+
+@tool(
+    "resumen_del_dia",
+    "Qué se movió hoy en la máquina de Diego: notas nuevas o editadas del vault, "
+    "archivos que tocó y estado del equipo. Para cerrar o abrir la jornada.",
+    {"dias": int},
+)
+async def resumen_del_dia(args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        dias = max(1, min(30, int(args.get("dias", 1))))
+    except Exception:
+        dias = 1
+    corte = dt.datetime.now() - dt.timedelta(days=dias)
+    marca = corte.timestamp()
+
+    notas = []
+    for p in VAULT.rglob("*.md"):
+        try:
+            if p.stat().st_mtime > marca:
+                notas.append((p.stat().st_mtime, p))
+        except Exception:
+            continue
+    notas.sort(reverse=True)
+
+    archivos = []
+    for raiz in (CARPETAS.get("descargas"), CARPETAS.get("documentos"),
+                 CARPETAS.get("escritorio")):
+        if raiz is None or not raiz.exists():
+            continue
+        try:
+            for f in raiz.rglob("*"):
+                if any(x in f.parts for x in IGNORAR):
+                    continue
+                if f.is_file() and f.stat().st_mtime > marca:
+                    archivos.append((f.stat().st_mtime, f))
+                    if len(archivos) > 200:
+                        break
+        except Exception:
+            continue
+    archivos.sort(reverse=True)
+
+    partes = [f"En {'el último día' if dias == 1 else f'los últimos {dias} días'}:"]
+    if notas:
+        partes.append(f"\n{len(notas)} notas tocadas en el vault:")
+        partes += [f"  · {p.stem}" for _, p in notas[:12]]
+        if len(notas) > 12:
+            partes.append(f"  … y {len(notas) - 12} más.")
+    else:
+        partes.append("\nNinguna nota nueva en el vault.")
+
+    if archivos:
+        partes.append(f"\n{len(archivos)} archivos tocados:")
+        partes += [f"  · {f.name}   ({f.parent})" for _, f in archivos[:10]]
+    return _ok("\n".join(partes))
 
 
 @tool("estado_maquina", "Uso de CPU, memoria y disco de la laptop.", {})
@@ -713,6 +880,7 @@ servidor = create_sdk_mcp_server(
     version="1.0.0",
     tools=[
         volumen, abrir_app, poner_musica, estado_maquina,
+        portapapeles, recordar_luego, resumen_del_dia,
         buscar_archivo, listar_carpeta, abrir_carpeta, leer_documento,
         guardar_en_vault, enlazar_en_moc, salud_del_vault, nota_de_clase,
         reindexar_vault,
@@ -723,6 +891,8 @@ servidor = create_sdk_mcp_server(
 NOMBRES = [
     "mcp__colita__volumen", "mcp__colita__abrir_app", "mcp__colita__poner_musica",
     "mcp__colita__estado_maquina",
+    "mcp__colita__portapapeles", "mcp__colita__recordar_luego",
+    "mcp__colita__resumen_del_dia",
     "mcp__colita__buscar_archivo", "mcp__colita__listar_carpeta",
     "mcp__colita__abrir_carpeta", "mcp__colita__leer_documento",
     "mcp__colita__guardar_en_vault", "mcp__colita__enlazar_en_moc",

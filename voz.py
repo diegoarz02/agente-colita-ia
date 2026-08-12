@@ -166,6 +166,41 @@ def _motor():
     return m
 
 
+def calentar() -> dict:
+    """Carga y estrena los motores al arrancar, para que la primera vez no duela.
+
+    Medido el 2026-08-12 en esta máquina: desde que oía su nombre hasta que
+    EMPEZABA a sonar el saludo pasaban **15,8 segundos** — 4,2 de cargar Kokoro
+    y 11,6 de la primera generación, que arrastra la inicialización de espeak y
+    de la sesión ONNX. Diego creía que no hablaba; simplemente no esperaba
+    dieciséis segundos.
+
+    Ya caliente, la misma frase tarda 1,2 s. Así que basta con hacer ese primer
+    trabajo al arrancar, en segundo plano, en vez de cobrárselo al saludo.
+    """
+    t = {}
+    t0 = time.perf_counter()
+    motor = _cargar_kokoro()
+    t["kokoro"] = round(time.perf_counter() - t0, 2)
+
+    if motor is not None:
+        t0 = time.perf_counter()
+        try:
+            # Se genera y se TIRA: solo queremos pagar la inicialización.
+            motor.create("Hola.", voice=KOKORO_VOZ, speed=KOKORO_VEL, lang="es")
+            t["primera_frase"] = round(time.perf_counter() - t0, 2)
+        except Exception:
+            t["primera_frase"] = None
+
+    t0 = time.perf_counter()
+    try:
+        _cargar()                    # Whisper `small`, el del oído
+        t["whisper"] = round(time.perf_counter() - t0, 2)
+    except Exception:
+        t["whisper"] = None
+    return t
+
+
 def hablar(texto: str, bloquear: bool = True) -> float:
     """Dice el texto. Devuelve los segundos que tardo."""
     texto = (texto or "").strip()
@@ -219,8 +254,14 @@ def _cargar():
     return _transcriptor
 
 
-def grabar(max_seg: int = MAX_SEG) -> np.ndarray:
-    """Graba hasta que Diego se calla (o hasta el tope)."""
+def grabar(max_seg: int = MAX_SEG, espera_inicial: float | None = None) -> np.ndarray:
+    """Graba hasta que Diego se calla (o hasta el tope).
+
+    `espera_inicial`: si pasa ese tiempo y NADIE ha empezado a hablar, se corta
+    y devuelve vacío. Hace falta para la conversación continua: tras responder,
+    Colita abre el micrófono por si Diego sigue, y si no sigue no puede
+    quedarse veinticinco segundos con el micro abierto esperando.
+    """
     mio = turno_actual()
     trozos: queue.Queue = queue.Queue()
 
@@ -251,14 +292,21 @@ def grabar(max_seg: int = MAX_SEG) -> np.ndarray:
                 silencio_desde = silencio_desde or time.perf_counter()
                 if time.perf_counter() - silencio_desde > CORTE:
                     break
+            elif espera_inicial is not None and \
+                    time.perf_counter() - t0 > espera_inicial:
+                return np.zeros(0, dtype="float32")   # nadie dijo nada
 
     return np.concatenate(audio).flatten() if audio else np.zeros(0, dtype="float32")
 
 
-def escuchar() -> tuple[str, dict]:
-    """Graba, transcribe y devuelve (texto, tiempos)."""
+def escuchar(espera_inicial: float | None = None) -> tuple[str, dict]:
+    """Graba, transcribe y devuelve (texto, tiempos).
+
+    `espera_inicial` se pasa tal cual a `grabar`: en un turno de seguimiento,
+    si nadie habla en esos segundos, se corta y se devuelve vacío.
+    """
     t0 = time.perf_counter()
-    audio = grabar()
+    audio = grabar(espera_inicial=espera_inicial)
     t_grabar = time.perf_counter() - t0
 
     if audio.size < FRECUENCIA * 0.4:      # menos de medio segundo util

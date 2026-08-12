@@ -88,16 +88,20 @@
   #lienzo{position:absolute;inset:0;width:100%;height:100%}
 
   #estado{position:relative;z-index:4;text-align:center;font-family:var(--mono);font-size:7.5px;
-    letter-spacing:.44em;text-transform:uppercase;color:var(--plomo);padding:2px 0 16px}
+    letter-spacing:.44em;text-transform:uppercase;color:var(--plomo);padding:2px 0 12px;
+    flex-shrink:0}
   #estado b{font-size:8.5px;color:var(--c);font-weight:400;transition:color .9s}
 
   /* Seis accesos ya no caben en una fila de 480 px: se envuelven en dos.
      Por eso cada botón lleva su propio borde en vez del grupo unido. */
+  /* `flex-shrink:0` para que la fila de accesos nunca la aplaste el orbe, y
+     `margin-top:auto` para que quede pegada abajo pase lo que pase. */
   #acciones{position:relative;z-index:4;display:flex;justify-content:center;
-    flex-wrap:wrap;gap:5px;padding:0 20px 18px}
-  .rapida{-webkit-app-region:no-drag;padding:8px 13px;font-family:var(--mono);font-size:6.5px;
-    letter-spacing:.28em;text-transform:uppercase;cursor:pointer;background:transparent;
-    border:1px solid var(--borde);border-radius:3px;color:var(--plomo);transition:all .24s}
+    flex-wrap:wrap;gap:4px;padding:0 16px 12px;flex-shrink:0;margin-top:auto}
+  .rapida{-webkit-app-region:no-drag;padding:7px 10px;font-family:var(--mono);font-size:6.2px;
+    letter-spacing:.22em;text-transform:uppercase;cursor:pointer;background:transparent;
+    border:1px solid var(--borde);border-radius:3px;color:var(--plomo);transition:all .24s;
+    white-space:nowrap}
   .rapida:hover{color:var(--plata);border-color:color-mix(in srgb,var(--c) 65%,var(--borde));
     background:color-mix(in srgb,var(--c) 10%,transparent)}
   .rapida:focus-visible{outline:1px solid var(--c);outline-offset:1px}
@@ -151,7 +155,8 @@
   .mini.peligro:hover{color:#e5484d}
 
   #pie{position:relative;z-index:4;text-align:center;font-family:var(--mono);font-size:6px;
-    letter-spacing:.4em;color:var(--plomo);padding-bottom:16px;text-transform:uppercase}
+    letter-spacing:.4em;color:var(--plomo);padding-bottom:14px;text-transform:uppercase;
+    flex-shrink:0}
   body.abierto #pie{display:none}
 </style>
 </head>
@@ -161,7 +166,7 @@
   <div id="ventana-btns">
     <button class="vb" id="minimizar" title="Minimizar (sigue escuchándote)">&minus;</button>
     <button class="vb" id="agrandar" title="Agrandar el panel">&#9723;</button>
-    <button class="vb" id="cerrar" title="Cerrar Colita">&times;</button>
+    <button class="vb" id="cerrar" title="Esconder — sigue escuchándote y queda en la bandeja del reloj">&times;</button>
   </div>
 
   <div id="top">
@@ -195,7 +200,7 @@
   <div id="acciones">
     <button class="rapida estudio" data-di="Quiero estudiar. Pregúntame de cuál de mis seis cursos del décimo ciclo se trata — enuméramelos — y qué quiero de él: teoría, referencias, código o explicarlo en simple. No busques nada todavía: primero pregunta.">estudiar</button>
     <button class="rapida estudio" data-di="Tengo una duda de estadística. Pregúntame cuál es antes de responder. Cuando respondas, hazlo con rigor: define, da el supuesto que puede romperse y, si buscas, cita las fuentes al final.">estadística</button>
-    <button class="rapida negocio" data-di="Busca en la web qué negocios se pueden arrancar HOY con cero capital y que estén dando dinero de verdad ahora mismo, no hace tres años. Propón tres o cuatro concretos, y de cada uno dime: qué es exactamente, por qué funciona en este momento, qué necesito de mí (tiempo, habilidad, herramienta — nada de dinero), cuánto puede dejar al mes y en cuánto tiempo se ven los primeros soles. Tienes mi perfil: estadística, ciencia de datos, IA, Python y R, y sé automatizar. Prioriza lo que aproveche eso. Nada de encuestas pagadas ni humo. Al final pregúntame cuál me interesa para bajarlo a un plan.">negocio</button>
+    <button class="rapida negocio" data-di="Modo negocio, vista 360. Busca en la web AHORA MISMO (usa fuentes de las últimas semanas, no de hace años) qué se está monetizando de verdad y arma tres o cuatro oportunidades concretas que yo pueda arrancar con cero capital. De cada una dame las siete caras: (1) QUÉ es, en una frase que entienda cualquiera; (2) POR QUÉ ahora — qué cambió en el mercado, la tecnología o la regulación que abrió la ventana, con la fuente; (3) DEMANDA — quién paga, cuánto paga hoy y dónde están esos clientes; (4) MI VENTAJA — qué de mi perfil (estadística UNMSM, ciencia de datos, IA, Python y R, automatización, agentes) me pone por delante del que empieza de cero; (5) ARRANQUE en 7 días — los pasos exactos de esta semana, sin gastar; (6) NÚMEROS — ingreso realista al mes 1, 3 y 12, punto de equilibrio, y qué tiene que ser cierto para que funcione; (7) POR QUÉ PODRÍA FALLAR — el riesgo real, la competencia y qué la mata. Ordénalas por ingreso esperado partido por esfuerzo. Nada de encuestas pagadas, dropshipping genérico ni humo motivacional: si algo ya está saturado, dilo. Cierra preguntándome cuál quiero bajar a plan detallado.">negocio</button>
     <button class="rapida" data-di="¿Cómo está la laptop?">estado</button>
     <button class="rapida" data-di="¿Qué tengo pendiente hoy? Mira mi calendario y mis correos sin leer.">día</button>
     <button class="rapida" data-di="Resume en qué quedamos con la tesis según mis notas.">tesis</button>
@@ -465,10 +470,12 @@ function cerrarPanel(){body.classList.remove('abierto');
 orbe.addEventListener('click',()=>body.classList.contains('abierto')?cerrarPanel():abrir());
 orbe.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();orbe.click()}});
 /* ── Controles de ventana ───────────────────────────────────────────────── */
+/* La ✕ esconde a la bandeja del reloj; NO cierra. Preguntar «¿la cierro del
+   todo?» cada vez era molesto, y cerrar de verdad un asistente que tiene que
+   oírte no es lo que quiere nadie al pulsar una ✕. Para cerrarla del todo,
+   «cerrar colita» en la barra del panel o el menú de la bandeja. */
 document.getElementById('cerrar').addEventListener('click',()=>{
-  /* Pregunta con el diálogo de Windows, no con confirm(): WebView2 puede
-     tragarse el confirm() sin mostrarlo y el botón se quedaría muerto. */
-  if(hayApi())pywebview.api.salir_preguntando()});
+  if(hayApi())pywebview.api.esconder()});
 
 document.getElementById('minimizar').addEventListener('click',()=>{
   if(hayApi())pywebview.api.minimizar()});
@@ -492,8 +499,11 @@ document.getElementById('limpiar').addEventListener('click',()=>{registro.length
    `await` sigue vivo aunque hayamos cortado. */
 let turno=0;
 
-async function mandar(t){
-  if(!body.classList.contains('abierto'))abrir();
+async function mandar(t,porVoz){
+  /* Si vino por voz, NO se abre el panel: Colita se queda en la bolita, que es
+     su foco. Quien te habla no quiere que le aparezca una ventana de chat
+     encima; el texto queda escrito por si luego lo abres. */
+  if(!porVoz && !body.classList.contains('abierto'))abrir();
   const mio=++turno;
   anotar('TÚ',t); estado('pensando');
   if(!hayApi()){estado(null);linea('<span class="sis">Sin cerebro: abre Colita.bat.</span>');return}
@@ -508,9 +518,47 @@ async function mandar(t){
     // Antes eran 1,8 s fijos: el grafico volvia a reposo mientras Colita
     // seguia hablando, que es el desfase que vio Diego.
     let seg=1.8; try{ seg=await pywebview.api.duracion_voz(); }catch(e){}
-    setTimeout(()=>{if(mio===turno)estado(null)}, seg*1000+400);
+    setTimeout(()=>{
+      if(mio!==turno)return;
+      /* En conversación no se vuelve a reposo: se vuelve a escuchar. */
+      if(conversando)escucharSeguimiento(); else estado(null);
+    }, seg*1000+400);
   }catch(e){if(mio===turno){estado(null);
     linea('<span class="sis">Error: '+esc(String(e))+'</span>')}}}
+
+/* ── Conversación continua ────────────────────────────────────────────────
+   El bug: al responderle por audio, el despertador oía la respuesta, creía
+   que la llamaban otra vez y saludaba encima de la conversación. Dentro de
+   una conversación no hay que llamarla — ya está escuchando. Se cierra sola
+   cuando pasan unos segundos sin que nadie diga nada. */
+let conversando=false;
+
+function abrirConversacion(){
+  if(conversando)return;
+  conversando=true;
+  if(hayApi())pywebview.api.conversacion(true);
+}
+function cerrarConversacion(mensaje){
+  if(!conversando)return;
+  conversando=false;
+  if(hayApi())pywebview.api.conversacion(false);
+  estado(null);
+  if(mensaje)linea('<span class="sis">'+mensaje+'</span>');
+}
+
+async function escucharSeguimiento(){
+  if(!conversando||!hayApi())return;
+  const mio=++turno;
+  estado('escuchando');
+  try{
+    const t=await pywebview.api.escuchar(true);   // true = turno de seguimiento
+    if(mio!==turno)return;                        // lo paraste mientras tanto
+    if(!t||t.startsWith('__error__')){
+      cerrarConversacion('Conversación cerrada. Llámame cuando quieras.');
+      return}
+    turno--;                                      // mandar() pone el suyo
+    mandar(t,true);
+  }catch(e){if(mio===turno)cerrarConversacion('Conversación cerrada.')}}
 function enviar(){const t=texto.value.trim();if(!t)return;texto.value='';mandar(t)}
 document.getElementById('enviar').addEventListener('click',enviar);
 texto.addEventListener('keydown',e=>{if(e.key==='Enter')enviar()});
@@ -538,7 +586,10 @@ mic.addEventListener('click',async()=>{
   try{const t=await pywebview.api.escuchar();
     if(mio!==turno)return;
     if(!t){estado(null);linea('<span class="sis">No capté nada.</span>');return}
-    mandar(t);
+    /* Pulsar el micro también abre conversación: tras responder sigue
+       escuchando, sin tener que volver a pulsar. */
+    abrirConversacion();
+    turno--; mandar(t,false);
   }catch(e){if(mio===turno){estado(null);
     linea('<span class="sis">Micrófono: '+esc(String(e))+'</span>')}}});
 
@@ -549,6 +600,7 @@ mic.addEventListener('click',async()=>{
 async function parar(){
   if(!body.classList.contains('ocupada'))return;
   turno++;                                   // invalida lo que venga tarde
+  cerrarConversacion();                      // parar también cierra el turno de voz
   estado(null);
   linea('<span class="sis">Parado. Corrige y vuelve a mandarlo.</span>');
   if(!hayApi())return;
@@ -572,7 +624,10 @@ window.colita={estado,linea,esc,
   activando(){estado('escuchando');
     linea('<span class="sis">◉ Colita activándose…</span>')},
   saludo(f){estado('hablando');
-    linea('<span class="co">COLITA</span> · '+esc(f||'Aquí estoy.'))}};
+    linea('<span class="co">COLITA</span> · '+esc(f||'Aquí estoy.'))},
+  /* Tras el saludo: abre conversación y se pone a escuchar, sin abrir el
+     panel y sin que haya que volver a decir «Colita, actívate». */
+  conversar(){abrirConversacion(); escucharSeguimiento()}};
 </script>
 </body>
 </html>

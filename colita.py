@@ -116,6 +116,10 @@ aplicacion ya lo dice. Escribe el encabezado y la lista, sin presentacion.
   entrantes no se encuentra navegando y es como si no existiera.
 - `salud_del_vault`: enlaces rotos y notas huerfanas. Pasalo tras anyadir varias.
 - `nota_de_clase`: la nota de una clase del ciclo, con su plantilla.
+- `portapapeles`: lee lo que Diego tiene copiado, o le copia algo largo para
+  que lo pegue. Mas rapido que dictarle una ruta o un comando.
+- `recordar_luego`: recordatorio HABLADO dentro de N minutos.
+- `resumen_del_dia`: que se movio hoy — notas del vault y archivos tocados.
 - `analizar_datos`: ejecuta Python con pandas, numpy, sklearn y matplotlib.
   Es tu herramienta principal para analisis, ETL y modelado. Usala en vez de
   describir lo que harias: hazlo y ensenya los numeros.
@@ -234,6 +238,7 @@ LIBRE_PATRONES = (
     # app no cambia nada. Ojo: "abrir_carpeta" no cae en CONFIRMAR porque no
     # contiene ninguno de esos patrones — es a proposito.
     "buscar_archivo", "listar_carpeta", "abrir_carpeta", "leer_documento",
+    "portapapeles", "recordar_luego", "resumen_del_dia",
 )
 
 # CONFIRMAR: sale de la maquina, borra, o cambia el sistema.
