@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Colita AI</title>
+<style>
+  :root{
+    --fondo:#0a0d14; --panel:#141926; --borde:#2f394d; --borde2:#465268;
+    --plata:#eaeff7; --plomo:#8e9bb2;
+    --c:#ff2d3f; --luz:#ffb59a;
+    --mono:"Cascadia Mono",ui-monospace,Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:transparent;overflow:hidden;
+    font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+    -webkit-user-select:none;user-select:none;color:var(--plata)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+
+  #marco{width:100%;height:100%;display:flex;flex-direction:column;position:relative;
+    border-radius:18px;overflow:hidden;background:
+      radial-gradient(90% 60% at 50% 8%, color-mix(in srgb,var(--c) 9%,transparent), transparent 62%),
+      var(--fondo);
+    border:1px solid var(--borde);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05),inset 0 0 60px rgba(0,0,0,.6),
+               0 30px 80px rgba(0,0,0,.92);
+    transition:box-shadow 1s}
+  #grano{position:absolute;inset:0;pointer-events:none;opacity:.06;z-index:6;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  /* viñeta: hunde los bordes, sube el centro */
+  #vineta{position:absolute;inset:0;pointer-events:none;z-index:5;
+    background:radial-gradient(72% 58% at 50% 42%,transparent 55%,rgba(0,0,0,.34) 100%)}
+
+  /* ── cabecera: tipografía con jerarquía ── */
+  #top{position:relative;z-index:4;padding:20px 22px 0;display:flex;
+    align-items:baseline;justify-content:space-between;-webkit-app-region:drag}
+  #marca{display:flex;align-items:baseline;gap:9px}
+  #marca .n{font-size:19px;font-weight:200;letter-spacing:.46em;color:var(--plata);
+    text-shadow:0 0 26px color-mix(in srgb,var(--c) 42%,transparent)}
+  #marca .i{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.3em;
+    color:var(--c);padding:3px 6px;border:1px solid color-mix(in srgb,var(--c) 42%,transparent);
+    border-radius:3px;transition:color .9s,border-color .9s}
+  #derecha{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+  #hora{font-family:var(--mono);font-size:13px;font-weight:200;letter-spacing:.16em;color:var(--plomo)}
+  #hora b{color:var(--plata);font-weight:400}
+  #clima{font-family:var(--mono);font-size:6.5px;letter-spacing:.26em;
+    text-transform:uppercase;color:var(--plomo);opacity:.75;white-space:nowrap}
+  /* Controles de ventana: minimizar, agrandar, cerrar. Solo con el panel
+     abierto — sobre la bolita cerrada no habria donde ponerlos sin taparla. */
+  /* Siempre visibles, también con la bolita cerrada: Diego los quiere a mano
+     sin tener que abrir el chat primero. */
+  #ventana-btns{-webkit-app-region:no-drag;position:absolute;top:14px;right:16px;
+    z-index:9;display:flex;gap:6px;opacity:.45;transition:opacity .2s}
+  #ventana-btns:hover{opacity:1}
+  body.abierto #ventana-btns{top:16px;right:18px;opacity:.7}
+  .vb{width:16px;height:16px;border-radius:2px;border:1px solid var(--borde2);
+    background:transparent;color:var(--plomo);cursor:pointer;font-size:9px;
+    display:grid;place-items:center;transition:all .18s;line-height:1;padding:0}
+  .vb:hover{background:var(--plomo);border-color:var(--plomo);color:#0a0a0a}
+  #cerrar:hover{background:#e5484d;border-color:#e5484d;color:#fff}
+  #agrandar.activo{background:var(--c);border-color:var(--c);color:#fff}
+
+  #hilo{position:relative;z-index:4;height:1px;margin:14px 22px 0;
+    background:linear-gradient(90deg,transparent,var(--borde2) 18%,var(--borde2) 82%,transparent)}
+
+  /* ── centro ── */
+  #centro{position:relative;z-index:3;display:grid;grid-template-columns:1fr auto 1fr;
+    align-items:center;gap:2px;padding:2px 18px 0;-webkit-app-region:drag}
+  .med{display:flex;flex-direction:column;gap:14px}
+  .med.der{align-items:flex-end}
+  .m{width:100%;max-width:78px}
+  .m .et{display:flex;justify-content:space-between;align-items:baseline;
+    font-family:var(--mono);font-size:6.5px;letter-spacing:.3em;color:var(--plomo);
+    text-transform:uppercase;margin-bottom:6px}
+  .m .val{font-size:10px;color:var(--plata);letter-spacing:.06em}
+  .m .riel{height:2px;background:var(--borde);border-radius:1px;position:relative;overflow:hidden}
+  .m .lleno{position:absolute;inset:0 auto 0 0;width:0;border-radius:1px;
+    background:linear-gradient(90deg,color-mix(in srgb,var(--c) 55%,transparent),var(--c));
+    transition:width 1.1s cubic-bezier(.3,0,.2,1);
+    box-shadow:0 0 8px color-mix(in srgb,var(--c) 75%,transparent)}
+
+  #orbe{position:relative;width:238px;height:238px;cursor:pointer;flex:0 0 auto}
+  #lienzo{position:absolute;inset:0;width:100%;height:100%}
+
+  #estado{position:relative;z-index:4;text-align:center;font-family:var(--mono);font-size:7.5px;
+    letter-spacing:.44em;text-transform:uppercase;color:var(--plomo);padding:2px 0 16px}
+  #estado b{font-size:8.5px;color:var(--c);font-weight:400;transition:color .9s}
+
+  /* Seis accesos ya no caben en una fila de 480 px: se envuelven en dos.
+     Por eso cada botón lleva su propio borde en vez del grupo unido. */
+  #acciones{position:relative;z-index:4;display:flex;justify-content:center;
+    flex-wrap:wrap;gap:5px;padding:0 20px 18px}
+  .rapida{-webkit-app-region:no-drag;padding:8px 13px;font-family:var(--mono);font-size:6.5px;
+    letter-spacing:.28em;text-transform:uppercase;cursor:pointer;background:transparent;
+    border:1px solid var(--borde);border-radius:3px;color:var(--plomo);transition:all .24s}
+  .rapida:hover{color:var(--plata);border-color:color-mix(in srgb,var(--c) 65%,var(--borde));
+    background:color-mix(in srgb,var(--c) 10%,transparent)}
+  .rapida:focus-visible{outline:1px solid var(--c);outline-offset:1px}
+  /* Los dos del ciclo 10 destacan: son los que va a usar a diario. */
+  .rapida.estudio{border-color:color-mix(in srgb,#566e98 45%,var(--borde));
+    color:color-mix(in srgb,#8fa6cc 70%,var(--plomo))}
+
+  /* ── panel ── */
+  #panel{position:relative;z-index:4;flex:1 1 auto;display:none;flex-direction:column;
+    gap:11px;padding:0 18px 18px;min-height:0}
+  body.abierto #panel{display:flex}
+  #barra{display:flex;justify-content:space-between;align-items:center}
+  #contexto{font-family:var(--mono);font-size:6.5px;letter-spacing:.32em;color:var(--plomo);
+    text-transform:uppercase}
+  .mini{-webkit-app-region:no-drag;padding:5px 11px;border-radius:3px;font-family:var(--mono);
+    font-size:6.5px;letter-spacing:.28em;text-transform:uppercase;cursor:pointer;background:transparent;
+    border:1px solid var(--borde);color:var(--plomo);transition:all .18s;margin-left:6px}
+  .mini:hover{color:var(--plata);border-color:var(--c)}
+
+  #salida{flex:1 1 auto;overflow-y:auto;padding:16px 17px;border-radius:7px;background:var(--panel);
+    border:1px solid var(--borde);font-size:12.5px;line-height:1.72;white-space:pre-wrap;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+  #salida::-webkit-scrollbar{width:3px}
+  #salida::-webkit-scrollbar-thumb{background:var(--borde2)}
+  .msg{animation:entrar .3s ease-out;padding:4px 0}
+  @keyframes entrar{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+  .yo{color:var(--plomo);font-family:var(--mono);font-size:7px;letter-spacing:.32em}
+  .co{color:var(--c);font-family:var(--mono);font-size:7px;letter-spacing:.32em;transition:color .9s}
+  .sis{color:var(--plomo);font-style:italic;font-size:11px}
+
+  #fila{display:flex;gap:7px}
+  #texto{flex:1;padding:13px 16px;border-radius:6px;border:1px solid var(--borde);
+    background:var(--panel);color:var(--plata);font-size:12.5px;outline:none;font-family:inherit;
+    -webkit-user-select:text;user-select:text;transition:border-color .25s,box-shadow .25s}
+  #texto:focus{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 10%,transparent)}
+  #texto::placeholder{color:var(--plomo)}
+  .btn{width:40px;height:40px;flex:0 0 auto;border-radius:6px;cursor:pointer;background:var(--panel);
+    color:var(--plomo);font-size:14px;display:grid;place-items:center;border:1px solid var(--borde);
+    transition:all .2s}
+  .btn:hover{color:var(--plata);border-color:var(--c);transform:translateY(-1px)}
+  .btn.activo{background:var(--c);color:#fff;border-color:var(--c)}
+
+  /* Parar solo existe cuando hay algo que parar: un boton muerto el 90 % del
+     tiempo se vuelve invisible justo cuando hace falta. */
+  #parar{display:none;color:#e5484d;border-color:#e5484d55}
+  #parar:hover{background:#e5484d;color:#fff;border-color:#e5484d}
+  body.ocupada #parar{display:grid}
+  .mini.peligro{color:#e5484d99}
+  .mini.peligro:hover{color:#e5484d}
+
+  #pie{position:relative;z-index:4;text-align:center;font-family:var(--mono);font-size:6px;
+    letter-spacing:.4em;color:var(--plomo);padding-bottom:16px;text-transform:uppercase}
+  body.abierto #pie{display:none}
+</style>
+</head>
+<body>
+<div id="marco">
+  <div id="vineta"></div><div id="grano"></div>
+  <div id="ventana-btns">
+    <button class="vb" id="minimizar" title="Minimizar (sigue escuchándote)">&minus;</button>
+    <button class="vb" id="agrandar" title="Agrandar el panel">&#9723;</button>
+    <button class="vb" id="cerrar" title="Cerrar Colita">&times;</button>
+  </div>
+
+  <div id="top">
+    <div id="marca"><span class="n">COLITA</span><span class="i">IA</span></div>
+    <div id="derecha">
+      <div id="hora">--<b>:</b>--</div>
+      <div id="clima" title="Lima — se actualiza cada 15 min">—</div>
+    </div>
+  </div>
+  <div id="hilo"></div>
+
+  <div id="centro">
+    <div class="med">
+      <div class="m"><div class="et"><span>cpu</span><span class="val" id="v-cpu">—</span></div>
+        <div class="riel"><div class="lleno" id="b-cpu"></div></div></div>
+      <div class="m"><div class="et"><span>ram</span><span class="val" id="v-ram">—</span></div>
+        <div class="riel"><div class="lleno" id="b-ram"></div></div></div>
+    </div>
+    <div id="orbe" role="button" tabindex="0"><canvas id="lienzo" width="476" height="476"></canvas></div>
+    <div class="med der">
+      <div class="m"><div class="et"><span>notas</span><span class="val" id="v-notas">—</span></div>
+        <div class="riel"><div class="lleno" id="b-notas" style="width:100%"></div></div></div>
+      <div class="m"><div class="et"><span>disco</span><span class="val" id="v-disco">—</span></div>
+        <div class="riel"><div class="lleno" id="b-disco"></div></div></div>
+    </div>
+  </div>
+
+  <div id="estado"><b id="etiqueta">en reposo</b></div>
+
+  <div id="acciones">
+    <button class="rapida estudio" data-di="Quiero estudiar. Pregúntame de cuál de mis seis cursos del décimo ciclo se trata — enuméramelos — y qué quiero de él: teoría, referencias, código o explicarlo en simple. No busques nada todavía: primero pregunta.">estudiar</button>
+    <button class="rapida estudio" data-di="Tengo una duda de estadística. Pregúntame cuál es antes de responder. Cuando respondas, hazlo con rigor: define, da el supuesto que puede romperse y, si buscas, cita las fuentes al final.">estadística</button>
+    <button class="rapida" data-di="¿Cómo está la laptop?">estado</button>
+    <button class="rapida" data-di="¿Qué tengo pendiente hoy? Mira mi calendario y mis correos sin leer.">día</button>
+    <button class="rapida" data-di="Resume en qué quedamos con la tesis según mis notas.">tesis</button>
+    <button class="rapida" data-di="¿Qué aprendí hoy que valga la pena guardar en el vault?">cerebro</button>
+  </div>
+
+  <div id="pie">di «colita, actívate»</div>
+
+  <div id="panel">
+    <div id="barra"><span id="contexto">general</span>
+      <span><button class="mini" id="copiar">copiar</button><button class="mini" id="limpiar">limpiar</button><button class="mini peligro" id="apagar">cerrar colita</button></span></div>
+    <div id="salida"><span class="sis">Colita lista.</span></div>
+    <div id="fila">
+      <input id="texto" placeholder="Dime algo…" autocomplete="off">
+      <button class="btn" id="adjuntar" title="Cargar archivo">📎</button>
+      <button class="btn" id="mic" title="Hablar">🎤</button>
+      <button class="btn" id="parar" title="Parar y corregir (Esc)">■</button>
+      <button class="btn" id="enviar" title="Enviar">➜</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   ESFERA GEODESICA 3D
+
+   Tecnica sacada de los visualizadores de Three.js: un icosaedro subdividido,
+   con cada vertice desplazado por ruido, rotado en 3D y proyectado con
+   perspectiva. Las aristas se ORDENAN POR PROFUNDIDAD: las de atras salen
+   finas y apagadas, las de delante gruesas y brillantes. Eso es lo que da
+   volumen de verdad, no un degradado.
+   ══════════════════════════════════════════════════════════════════════════ */
+const cv=document.getElementById('lienzo'), ctx=cv.getContext('2d');
+const W=cv.width, R=W/2, FOCO=560;
+
+/* ── icosaedro subdividido ── */
+function geodesica(sub){
+  const t=(1+Math.sqrt(5))/2;
+  let V=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],
+         [t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(p=>{
+    const l=Math.hypot(...p); return p.map(v=>v/l);});
+  let F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
+         [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  const cache={};
+  const medio=(a,b)=>{const k=a<b?a+'_'+b:b+'_'+a; if(cache[k]!==undefined)return cache[k];
+    const p=[(V[a][0]+V[b][0])/2,(V[a][1]+V[b][1])/2,(V[a][2]+V[b][2])/2];
+    const l=Math.hypot(...p); V.push(p.map(v=>v/l)); return cache[k]=V.length-1;};
+  for(let s=0;s<sub;s++){
+    const N=[];
+    F.forEach(([a,b,c])=>{const ab=medio(a,b),bc=medio(b,c),ca=medio(c,a);
+      N.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);});
+    F=N;
+  }
+  const set=new Set(), E=[];
+  F.forEach(f=>[[f[0],f[1]],[f[1],f[2]],[f[2],f[0]]].forEach(([a,b])=>{
+    const k=a<b?a+'_'+b:b+'_'+a; if(!set.has(k)){set.add(k);E.push([a,b])}}));
+  return {V,E};
+}
+const {V:VERT,E:ARIS}=geodesica(2);        /* 162 vertices, 480 aristas */
+
+/* ruido pseudo-aleatorio suave por vertice */
+const semilla=VERT.map(()=>Math.random()*6.283);
+
+const TONO={
+  reposo :{c:[255,45,63],   luz:[255,181,154], def:.30, vel:.80, gruesa:1.7},
+  escucha:{c:[255,62,84],   luz:[255,205,180], def:.58, vel:2.6 , gruesa:2.2},
+  piensa :{c:[110,146,255], luz:[196,220,255], def:.46, vel:1.6 , gruesa:2.0},
+  habla  :{c:[255,240,235],luz:[255,255,255], def:.66, vel:3.4 , gruesa:2.4},
+};
+let modo='reposo', T=0;
+let mez={c:[193,18,31],luz:[255,143,107],def:.10,vel:.55,gruesa:1};
+
+const lerp=(a,b,k)=>a+(b-a)*k;
+const rgba=(c,a)=>`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+
+/* particulas que orbitan fuera de la esfera */
+const orbita=Array.from({length:46},()=>({
+  th:Math.random()*6.283, ph:Math.acos(2*Math.random()-1),
+  r:150+Math.random()*54, v:(Math.random()-.5)*.006, b:Math.random()*6.283}));
+
+function dibujar(){
+  const D=TONO[modo];
+  ['def','vel','gruesa'].forEach(k=>mez[k]=lerp(mez[k],D[k],.05));
+  ['c','luz'].forEach(k=>mez[k]=mez[k].map((v,i)=>lerp(v,D[k][i],.05)));
+  T+=0.010*mez.vel;
+  ctx.clearRect(0,0,W,W);
+
+  const latido=1+Math.sin(T*3.0)*.13;
+  const RAD=112*latido;
+  const ry=T*.42, rx=Math.sin(T*.28)*.42;
+  const cy_=Math.cos(ry), sy=Math.sin(ry), cx_=Math.cos(rx), sx=Math.sin(rx);
+
+  /* proyectar todos los vertices */
+  const P=VERT.map((v,i)=>{
+    const d=1+Math.sin(T*2.1+semilla[i])*mez.def+Math.sin(T*1.3+semilla[i]*2)*mez.def*.55;
+    let [x,y,z]=[v[0]*RAD*d, v[1]*RAD*d, v[2]*RAD*d];
+    let x1=x*cy_+z*sy, z1=-x*sy+z*cy_;
+    let y1=y*cx_-z1*sx, z2=y*sx+z1*cx_;
+    const k=FOCO/(FOCO+z2);
+    return {x:R+x1*k, y:R+y1*k, z:z2, k};
+  });
+
+  /* resplandor de fondo */
+  const g=ctx.createRadialGradient(R,R,10,R,R,RAD*1.75);
+  g.addColorStop(0,rgba(mez.c,.30)); g.addColorStop(.5,rgba(mez.c,.09));
+  g.addColorStop(1,rgba(mez.c,0));
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(R,R,RAD*1.75,0,6.283); ctx.fill();
+
+  /* aristas ordenadas por profundidad: atras primero */
+  const aris=ARIS.map(([a,b])=>({a,b,z:(P[a].z+P[b].z)/2})).sort((u,w)=>u.z-w.z);
+  ctx.lineCap='round';
+  aris.forEach(({a,b,z})=>{
+    const p=(z+RAD)/(2*RAD);                  /* 0 atras .. 1 delante */
+    const alfa=.05+p*p*.92;
+    ctx.beginPath();
+    ctx.strokeStyle=rgba(p>.72?mez.luz:mez.c,alfa);
+    ctx.lineWidth=(.5+p*p*2.6)*mez.gruesa;
+    if(p>.74){ctx.shadowBlur=9+p*16;ctx.shadowColor=rgba(mez.luz,.95)}
+    ctx.moveTo(P[a].x,P[a].y); ctx.lineTo(P[b].x,P[b].y); ctx.stroke();
+    ctx.shadowBlur=0;
+  });
+
+  /* vertices delanteros */
+  P.forEach(p=>{const d=(p.z+RAD)/(2*RAD);
+    if(d>.68){ctx.beginPath(); ctx.fillStyle=rgba(mez.luz,(d-.68)*2.6);
+      ctx.arc(p.x,p.y,.7+d*1.5,0,6.283); ctx.fill()}});
+
+  /* nucleo */
+  const n=ctx.createRadialGradient(R-9,R-11,1,R,R,34*latido);
+  n.addColorStop(0,rgba(mez.luz,.98)); n.addColorStop(.4,rgba(mez.c,.88));
+  n.addColorStop(1,'rgba(6,7,10,0)');
+  ctx.fillStyle=n; ctx.beginPath(); ctx.arc(R,R,34*latido,0,6.283); ctx.fill();
+
+  /* particulas orbitando */
+  orbita.forEach(o=>{
+    o.th+=o.v*mez.vel*3; o.b+=.03*mez.vel;
+    const x=o.r*Math.sin(o.ph)*Math.cos(o.th), y=o.r*Math.cos(o.ph),
+          z=o.r*Math.sin(o.ph)*Math.sin(o.th);
+    let x1=x*cy_+z*sy, z1=-x*sy+z*cy_;
+    let y1=y*cx_-z1*sx, z2=y*sx+z1*cx_;
+    const k=FOCO/(FOCO+z2), br=(.2+Math.sin(o.b)*.2)*((z2+o.r)/(2*o.r));
+    ctx.beginPath(); ctx.fillStyle=rgba(mez.luz,Math.max(0,br));
+    ctx.arc(R+x1*k,R+y1*k,.8*k+br,0,6.283); ctx.fill();
+  });
+
+  requestAnimationFrame(dibujar);
+}
+dibujar();
+
+/* ═══════════ logica ═══════════ */
+const body=document.body, orbe=document.getElementById('orbe'),
+      salida=document.getElementById('salida'), texto=document.getElementById('texto'),
+      etiqueta=document.getElementById('etiqueta'), mic=document.getElementById('mic'),
+      raiz=document.documentElement;
+const hayApi=()=>typeof window.pywebview!=='undefined'&&window.pywebview.api;
+
+const EST={escuchando:['escuchando','escucha','#e52c3a'],
+           pensando:['pensando','piensa','#566e98'],
+           hablando:['hablando','habla','#e0dee4']};
+const registro=[];
+function estado(s){
+  if(s){modo=EST[s][1]; raiz.style.setProperty('--c',EST[s][2]); etiqueta.textContent=EST[s][0]}
+  else{modo='reposo'; raiz.style.setProperty('--c','#c1121f'); etiqueta.textContent='en reposo'}
+  mic.classList.toggle('activo',s==='escuchando');
+  // Ocupada = pensando, hablando o escuchando. Es cuando aparece «parar».
+  body.classList.toggle('ocupada',!!s);
+}
+const esc=t=>t.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function linea(h){salida.insertAdjacentHTML('beforeend','<div class="msg">'+h+'</div>');
+  salida.scrollTop=salida.scrollHeight}
+function anotar(q,t){registro.push(`${q}: ${t}`);
+  linea(`<span class="${q==='TÚ'?'yo':'co'}">${q}</span> · ${esc(t)}`)}
+
+function tic(){const d=new Date();
+  document.getElementById('hora').innerHTML=
+    String(d.getHours()).padStart(2,'0')+'<b>:</b>'+String(d.getMinutes()).padStart(2,'0')}
+tic(); setInterval(tic,20000);
+
+function pinta(id,p,t){document.getElementById('b-'+id).style.width=Math.min(100,p)+'%';
+  document.getElementById('v-'+id).textContent=t}
+async function medir(){if(!hayApi())return;
+  try{const m=await pywebview.api.metricas();
+    pinta('cpu',m.cpu,m.cpu+'%'); pinta('ram',m.ram,m.ram+'%'); pinta('disco',m.disco,m.disco+'%');
+    document.getElementById('v-notas').textContent=m.notas;
+    document.getElementById('contexto').textContent=m.tema;
+  }catch(e){}}
+setTimeout(medir,900); setInterval(medir,8000);
+
+/* Clima. Python lo cachea 15 min, así que preguntar cada 10 no cuesta red. */
+async function verClima(){if(!hayApi())return;
+  try{const c=await pywebview.api.clima();
+    document.getElementById('clima').textContent=
+      c.ok?(c.temp+(c.desc?' · '+c.desc:'')):'sin clima';
+  }catch(e){}}
+setTimeout(verClima,1800); setInterval(verClima,600000);
+
+function abrir(){body.classList.add('abierto');
+  if(hayApi())pywebview.api.redimensionar(true); setTimeout(()=>texto.focus(),140)}
+function cerrarPanel(){body.classList.remove('abierto');
+  if(hayApi())pywebview.api.redimensionar(false)}
+orbe.addEventListener('click',()=>body.classList.contains('abierto')?cerrarPanel():abrir());
+orbe.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();orbe.click()}});
+/* ── Controles de ventana ───────────────────────────────────────────────── */
+document.getElementById('cerrar').addEventListener('click',()=>{
+  /* Pregunta con el diálogo de Windows, no con confirm(): WebView2 puede
+     tragarse el confirm() sin mostrarlo y el botón se quedaría muerto. */
+  if(hayApi())pywebview.api.salir_preguntando()});
+
+document.getElementById('minimizar').addEventListener('click',()=>{
+  if(hayApi())pywebview.api.minimizar()});
+
+const btnAgrandar=document.getElementById('agrandar');
+btnAgrandar.addEventListener('click',()=>{
+  const enorme=!btnAgrandar.classList.contains('activo');
+  btnAgrandar.classList.toggle('activo',enorme);
+  btnAgrandar.title=enorme?'Volver al tamaño normal':'Agrandar el panel';
+  if(hayApi())pywebview.api.agrandar(enorme)});
+
+document.getElementById('copiar').addEventListener('click',async()=>{
+  const t=registro.join('\n\n'); if(!t){linea('<span class="sis">Nada que copiar.</span>');return}
+  try{await navigator.clipboard.writeText(t)}catch(e){if(hayApi())await pywebview.api.copiar(t)}
+  linea('<span class="sis">Copiado.</span>')});
+document.getElementById('limpiar').addEventListener('click',()=>{registro.length=0;
+  salida.innerHTML='<span class="sis">Panel limpio.</span>'});
+
+/* Cada turno lleva número. Si Diego pulsa «parar», el número cambia y la
+   respuesta que llegue tarde se descarta en vez de pisar la pantalla —el
+   `await` sigue vivo aunque hayamos cortado. */
+let turno=0;
+
+async function mandar(t){
+  if(!body.classList.contains('abierto'))abrir();
+  const mio=++turno;
+  anotar('TÚ',t); estado('pensando');
+  if(!hayApi()){estado(null);linea('<span class="sis">Sin cerebro: abre Colita.bat.</span>');return}
+  /* Contesta ya, antes de ponerse a trabajar: dice qué va a hacer y si va
+     para largo. Sin await bloqueante — la pregunta de verdad arranca a la vez. */
+  pywebview.api.avisar(t).then(f=>{if(mio===turno&&f)
+    linea('<span class="co">COLITA</span> · '+esc(f))}).catch(()=>{});
+  try{const r=await pywebview.api.preguntar(t);
+    if(mio!==turno)return;                       // lo paraste: esto ya no vale
+    estado('hablando'); anotar('COLITA',r); medir();
+    // El orbe se queda en 'hablando' EXACTAMENTE lo que dura la voz.
+    // Antes eran 1,8 s fijos: el grafico volvia a reposo mientras Colita
+    // seguia hablando, que es el desfase que vio Diego.
+    let seg=1.8; try{ seg=await pywebview.api.duracion_voz(); }catch(e){}
+    setTimeout(()=>{if(mio===turno)estado(null)}, seg*1000+400);
+  }catch(e){if(mio===turno){estado(null);
+    linea('<span class="sis">Error: '+esc(String(e))+'</span>')}}}
+function enviar(){const t=texto.value.trim();if(!t)return;texto.value='';mandar(t)}
+document.getElementById('enviar').addEventListener('click',enviar);
+texto.addEventListener('keydown',e=>{if(e.key==='Enter')enviar()});
+document.querySelectorAll('.rapida').forEach(b=>b.addEventListener('click',()=>mandar(b.dataset.di)));
+
+document.getElementById('adjuntar').addEventListener('click',async()=>{
+  if(!hayApi())return; if(!body.classList.contains('abierto'))abrir();
+  const ruta=await pywebview.api.elegir_archivo();
+  if(!ruta||ruta.startsWith('__error__'))return;
+  const nombre=ruta.split(/[\\/]/).pop();
+  texto.value=`Analiza el archivo ${nombre} (ruta: ${ruta}). Ábrelo y dime qué contiene.`;
+  texto.focus(); linea('<span class="sis">Cargado: '+esc(nombre)+'</span>')});
+
+['dragover','drop'].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault()));
+document.addEventListener('drop',e=>{const f=e.dataTransfer?.files?.[0]; if(!f)return;
+  if(!body.classList.contains('abierto'))abrir();
+  texto.value=`Analiza el archivo ${f.name}. Búscalo en mis carpetas y dime qué contiene.`;
+  texto.focus(); linea('<span class="sis">Soltaste: '+esc(f.name)+'</span>')});
+
+mic.addEventListener('click',async()=>{
+  if(mic.classList.contains('activo'))return; if(!hayApi())return;
+  if(!body.classList.contains('abierto'))abrir();
+  const mio=++turno;
+  estado('escuchando'); linea('<span class="sis">Te escucho…</span>');
+  try{const t=await pywebview.api.escuchar();
+    if(mio!==turno)return;
+    if(!t){estado(null);linea('<span class="sis">No capté nada.</span>');return}
+    mandar(t);
+  }catch(e){if(mio===turno){estado(null);
+    linea('<span class="sis">Micrófono: '+esc(String(e))+'</span>')}}});
+
+/* ── Parar y cerrar ──────────────────────────────────────────────────────
+   Parar corta la voz, tira la grabación e interrumpe al cerebro, pero NO
+   pierde la conversación: devuelve lo último que dijiste a la caja de texto
+   para que lo corrijas y lo mandes otra vez. */
+async function parar(){
+  if(!body.classList.contains('ocupada'))return;
+  turno++;                                   // invalida lo que venga tarde
+  estado(null);
+  linea('<span class="sis">Parado. Corrige y vuelve a mandarlo.</span>');
+  if(!hayApi())return;
+  try{const anterior=await pywebview.api.parar();
+    if(anterior&&!texto.value.trim()){texto.value=anterior}
+    texto.focus(); texto.select();
+  }catch(e){linea('<span class="sis">No pude parar del todo: '+esc(String(e))+'</span>')}}
+
+document.getElementById('parar').addEventListener('click',parar);
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){e.preventDefault();
+    body.classList.contains('ocupada')?parar():cerrarPanel()}});
+
+/* Mismo diálogo nativo que la ✕ de arriba. Dos accesos al mismo sitio: la ✕
+   por costumbre, y este por si estás leyendo la conversación. */
+document.getElementById('apagar').addEventListener('click',()=>{
+  if(hayApi())pywebview.api.salir_preguntando()});
+
+window.colita={estado,linea,esc,
+  /* Lo llama el despertador en cuanto oye su nombre, antes de hablar. */
+  activando(){estado('escuchando');
+    linea('<span class="sis">◉ Colita activándose…</span>')},
+  saludo(f){estado('hablando');
+    linea('<span class="co">COLITA</span> · '+esc(f||'Aquí estoy.'))}};
+</script>
+</body>
+</html>

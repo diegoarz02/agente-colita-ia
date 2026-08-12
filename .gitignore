@@ -1,0 +1,33 @@
+# Modelos de voz: 338 MB, muy por encima del límite de GitHub.
+# Se descargan con las instrucciones del README.
+modelos/
+*.onnx
+*.bin
+
+# Salida de trabajo y registros: cambian en cada ejecución
+salidas/
+registro.log
+registro.log.viejo
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Estado local del agente
+.claude/
+
+# Volcados de sesiones de navegador: capturan las páginas que se visitaron.
+# Nunca deben salir de esta máquina.
+.playwright-mcp/
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Nada personal en el repositorio
+*.env
+.env
+credenciales*
