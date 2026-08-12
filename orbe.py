@@ -93,6 +93,9 @@ import despertador  # la palabra de activacion
 from registro import arranque, fallo, log
 
 AQUI = Path(__file__).parent
+# Marca de "cerrada a proposito". La escribe la ✕ y la borra cualquier arranque
+# manual. Solo el vigilante la respeta.
+DESCANSO = AQUI / "descansando.flag"
 CHICO = (480, 400)   # panel de mando: orbe, reloj, medidores, accesos
 GRANDE = (560, 820)  # + la conversacion
 ENORME = (820, 1000)  # para leer respuestas largas sin bizquear
@@ -506,15 +509,27 @@ class Api:
         seguro = bool(self._ventana.create_confirmation_dialog(
             "Cerrar a Colita",
             "¿La cierro del todo?\n\n"
-            "Deja de escucharte y hay que abrirla otra vez con Colita.bat.\n"
-            "Si solo quieres que se calle, usa el botón de parar.",
+            "Deja de escucharte hasta que la vuelvas a abrir: con el acceso "
+            "directo de Colita, o sola al reiniciar la laptop.\n\n"
+            "Si solo quieres que se calle un momento, usa el botón ■ de parar.",
         ))
         if seguro:
-            self.salir()
+            self.salir(descansar=True)
         return seguro
 
-    def salir(self) -> None:
+    def salir(self, descansar: bool = False) -> None:
+        """`descansar` = cerrada a proposito; el vigilante no debe revivirla.
+
+        Sin esto, cerrarla con la ✕ duraba como mucho diez minutos: la tarea
+        programada la volvia a levantar y parecia que el boton no servia.
+        """
         log("cerrando por peticion de Diego", "orbe")
+        if descansar:
+            try:
+                DESCANSO.write_text("cerrada a proposito por Diego\n", encoding="utf-8")
+                log("marcada como descansando; el vigilante la dejara en paz", "orbe")
+            except Exception:
+                fallo("no pude escribir la marca de descanso", "orbe")
         voz.callar()
         self.detener_atajo()
         self.detener_despertador()
@@ -640,7 +655,25 @@ def _soy_la_unica() -> bool:
 
 
 def main() -> None:
-    arranque("el orbe")
+    import sys
+
+    vigilante = "--vigilante" in sys.argv
+
+    arranque("el orbe (vigilante)" if vigilante else "el orbe")
+
+    if vigilante:
+        # La tarea programada solo repone a Colita si se cayo sola. Si Diego la
+        # cerro con la ✕, se queda cerrada: eso es lo que significa cerrar.
+        if DESCANSO.exists():
+            log("Diego la cerro a proposito; no la levanto", "vigilante")
+            return
+    else:
+        # Arranque manual o al iniciar sesion: se acabo el descanso.
+        try:
+            DESCANSO.unlink(missing_ok=True)
+        except Exception:
+            pass
+
     if not _soy_la_unica():
         log("ya habia otra Colita despierta; me retiro sin hacer nada")
         return

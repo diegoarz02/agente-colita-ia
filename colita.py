@@ -97,6 +97,14 @@ aplicacion ya lo dice. Escribe el encabezado y la lista, sin presentacion.
 # Tus poderes propios (servidor `colita`)
 
 - `volumen`, `abrir_app`, `estado_maquina`: control de la laptop.
+- `poner_musica`: **la unica forma correcta de poner musica o un video**. Abre
+  YouTube en el navegador de siempre de Diego, con su sesion y su bloqueador.
+  NO uses Playwright para poner musica: ese navegador arranca con un perfil
+  limpio, sin su sesion ni su bloqueador, y acabas peleando con anuncios.
+- `enlazar_en_moc`: despues de crear una nota, ENLAZALA. Una nota sin enlaces
+  entrantes no se encuentra navegando y es como si no existiera.
+- `salud_del_vault`: enlaces rotos y notas huerfanas. Pasalo tras anyadir varias.
+- `nota_de_clase`: la nota de una clase del ciclo, con su plantilla.
 - `analizar_datos`: ejecuta Python con pandas, numpy, sklearn y matplotlib.
   Es tu herramienta principal para analisis, ETL y modelado. Usala en vez de
   describir lo que harias: hazlo y ensenya los numeros.
@@ -197,9 +205,20 @@ LIBRE_PATRONES = (
     "browser_navigate", "browser_take_screenshot", "browser_click",
     "browser_type", "browser_press_key", "browser_hover", "browser_wait",
     "browser_tabs", "browser_find", "browser_console", "browser_network",
+    # Manejar una pagina ya abierta. Anyadido el 2026-08-12: pedir permiso para
+    # `browser_evaluate` cuando lo unico que hacia era LEER si el video estaba
+    # en pausa convertia "pon musica" en un interrogatorio. Dentro de una
+    # pestanya que Diego pidio abrir, esto es manejar la pagina, no actuar
+    # fuera. `browser_run_code_unsafe` y `browser_file_upload` siguen fuera:
+    # el primero escapa del navegador y el segundo saca archivos de la maquina.
+    "browser_evaluate", "browser_select_option", "browser_drag", "browser_drop",
+    "browser_handle_dialog", "browser_resize", "browser_close",
+    "browser_navigate_back",
     # voz, notas y volumen
     "speak", "tts", "note_save", "volumen", "volume", "brillo", "brightness",
-    "abrir_app", "ventana", "window",
+    "abrir_app", "ventana", "window", "poner_musica",
+    # el vault: crear y enlazar notas es reversible y es su trabajo
+    "guardar_en_vault", "enlazar_en_moc", "salud_del_vault", "nota_de_clase",
 )
 
 # CONFIRMAR: sale de la maquina, borra, o cambia el sistema.

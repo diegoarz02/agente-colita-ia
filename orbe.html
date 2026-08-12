@@ -42,8 +42,14 @@
   #derecha{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
   #hora{font-family:var(--mono);font-size:13px;font-weight:200;letter-spacing:.16em;color:var(--plomo)}
   #hora b{color:var(--plata);font-weight:400}
-  #clima{font-family:var(--mono);font-size:6.5px;letter-spacing:.26em;
+  #clima,#cuenta{font-family:var(--mono);font-size:6.5px;letter-spacing:.26em;
     text-transform:uppercase;color:var(--plomo);opacity:.75;white-space:nowrap}
+  #cuenta{color:#8fa6cc;opacity:.9}
+  #cuenta.cerca{color:#e5a04d}
+  #cuenta.hoy{color:#e5484d;opacity:1}
+  /* Medidor en rojo cuando aprieta de verdad: un número gris al 90 % no avisa. */
+  .lleno.alerta{background:#e5484d}
+  .val.alerta{color:#e5484d}
   /* Controles de ventana: minimizar, agrandar, cerrar. Solo con el panel
      abierto — sobre la bolita cerrada no habria donde ponerlos sin taparla. */
   /* Siempre visibles, también con la bolita cerrada: Diego los quiere a mano
@@ -161,6 +167,7 @@
     <div id="derecha">
       <div id="hora">--<b>:</b>--</div>
       <div id="clima" title="Lima — se actualiza cada 15 min">—</div>
+      <div id="cuenta" title="Inicio de clases del décimo ciclo"></div>
     </div>
   </div>
   <div id="hilo"></div>
@@ -364,8 +371,12 @@ function tic(){const d=new Date();
     String(d.getHours()).padStart(2,'0')+'<b>:</b>'+String(d.getMinutes()).padStart(2,'0')}
 tic(); setInterval(tic,20000);
 
-function pinta(id,p,t){document.getElementById('b-'+id).style.width=Math.min(100,p)+'%';
-  document.getElementById('v-'+id).textContent=t}
+/* Umbral por medidor: 90 % de disco es normal, 90 % de RAM es un problema. */
+const ALERTA={cpu:88,ram:85,disco:95};
+function pinta(id,p,t){const b=document.getElementById('b-'+id),v=document.getElementById('v-'+id);
+  b.style.width=Math.min(100,p)+'%'; v.textContent=t;
+  const mal=p>=(ALERTA[id]||101);
+  b.classList.toggle('alerta',mal); v.classList.toggle('alerta',mal)}
 async function medir(){if(!hayApi())return;
   try{const m=await pywebview.api.metricas();
     pinta('cpu',m.cpu,m.cpu+'%'); pinta('ram',m.ram,m.ram+'%'); pinta('disco',m.disco,m.disco+'%');
@@ -381,6 +392,19 @@ async function verClima(){if(!hayApi())return;
       c.ok?(c.temp+(c.desc?' · '+c.desc:'')):'sin clima';
   }catch(e){}}
 setTimeout(verClima,1800); setInterval(verClima,600000);
+
+/* Cuenta atrás para el inicio de clases del décimo ciclo. Se calcula en el
+   navegador: no hace falta molestar a Python para restar dos fechas. */
+const INICIO_CLASES=new Date(2026,7,24);      // 24 de agosto de 2026 (mes 0-indexado)
+function verCuenta(){
+  const hoy=new Date(), h0=new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate());
+  const d=Math.round((INICIO_CLASES-h0)/86400000), e=document.getElementById('cuenta');
+  e.className='';
+  if(d>1){e.textContent='clases en '+d+' días'; if(d<=7)e.className='cerca'}
+  else if(d===1){e.textContent='clases mañana'; e.className='hoy'}
+  else if(d===0){e.textContent='hoy empiezan clases'; e.className='hoy'}
+  else{e.textContent='ciclo 10 · semana '+Math.floor(-d/7+1)}}
+verCuenta(); setInterval(verCuenta,3600000);
 
 function abrir(){body.classList.add('abierto');
   if(hayApi())pywebview.api.redimensionar(true); setTimeout(()=>texto.focus(),140)}

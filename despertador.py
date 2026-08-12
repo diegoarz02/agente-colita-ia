@@ -59,6 +59,24 @@ ENFRIAMIENTO = 2.5     # segundos de pausa tras despertar, para no dispararse do
 # casita bonita" la despertaba (casita->calita es 1). Probado el 2026-08-12.
 DESPERTADORES = ("colita",)
 
+# Red de seguridad: el verbo. El 2026-08-12 Diego dijo "Colita, actívate" y el
+# registro guardo '¿Cualí te activaste?' — el nombre quedo a distancia 3 y no
+# disparo, pero "activaste" esta a 1 de "activate". El nombre es la parte que
+# el modelo pequenyo destroza; el verbo aguanta mejor.
+#
+# Solo vale en frases cortas: "activate" suelto dentro de una conversacion
+# larga casi nunca es una llamada, y asi no se dispara sola mientras Diego
+# habla con alguien.
+VERBOS = ("activate", "actívate", "activar", "despierta")
+LARGO_VERBO = 7
+MAX_PALABRAS_PARA_VERBO = 6
+
+# La pista de contexto. Esto es lo que arreglo la deteccion de verdad: sin
+# ella, `tiny` acertaba 17 de 18 muestras de prueba; con ella, 18 de 18, y sin
+# pagar el doble de tiempo que cuesta `base`. Whisper usa el texto previo como
+# contexto, asi que darle las palabras que esperamos oir lo sesga hacia ellas.
+PISTA = "Colita, actívate. Colita. Activate. Despierta Colita."
+
 _modelo = None
 
 
@@ -95,12 +113,23 @@ def _distancia(a: str, b: str) -> int:
 
 def _es_llamada(texto: str) -> bool:
     limpio = "".join(c for c in texto.lower() if c.isalpha() or c.isspace())
-    for palabra in limpio.split():
+    palabras = limpio.split()
+
+    for palabra in palabras:
         if len(palabra) < LARGO_MINIMO:
             continue
         for clave in DESPERTADORES:
             if _distancia(palabra, clave) <= TOLERANCIA:
                 return True
+
+    # El nombre no aparecio. Si la frase es corta, el verbo vale como llamada.
+    if len(palabras) <= MAX_PALABRAS_PARA_VERBO:
+        for palabra in palabras:
+            if len(palabra) < LARGO_VERBO:
+                continue
+            for verbo in VERBOS:
+                if _distancia(palabra, verbo) <= TOLERANCIA:
+                    return True
     return False
 
 
@@ -176,7 +205,8 @@ class Despertador(threading.Thread):
 
                 try:
                     segs, _ = _cargar().transcribe(
-                        audio, language="es", beam_size=1, vad_filter=True
+                        audio, language="es", beam_size=1, vad_filter=True,
+                        initial_prompt=PISTA,
                     )
                     texto = " ".join(s.text for s in segs).strip()
                 except Exception:

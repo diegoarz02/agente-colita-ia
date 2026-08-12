@@ -79,6 +79,69 @@ async def abrir_app(args: dict[str, Any]) -> dict[str, Any]:
             return _ok(f"No pude abrir «{que}»: {e}")
 
 
+@tool(
+    "poner_musica",
+    "Pone una canción o vídeo de YouTube en el navegador normal de Diego. "
+    "Es la forma correcta de poner música: NO uses Playwright para esto.",
+    {"busqueda": str},
+)
+async def poner_musica(args: dict[str, Any]) -> dict[str, Any]:
+    """Resuelve el primer resultado y lo abre en el navegador de siempre.
+
+    Por que no con Playwright, que era lo que se hacia antes y se atascaba:
+
+    - Playwright abre un perfil limpio, como una ventana de incognito. Ahi no
+      esta la sesion de Diego ni su bloqueador, asi que salen todos los
+      anuncios y hay que pelearse con ellos.
+    - Cada intento de saltarlos pedia permiso para `browser_evaluate`, y la
+      cosa acababa en un interrogatorio en vez de en musica.
+
+    Abrirlo en el navegador de siempre resuelve las dos cosas de golpe: es su
+    sesion, sus extensiones y sus suscripciones. Y no hace falta automatizar
+    nada, que es la parte que se rompia.
+    """
+    import urllib.parse
+    import urllib.request
+    import webbrowser
+
+    q = str(args.get("busqueda", "")).strip()
+    if not q:
+        return _ok("¿Qué quieres que ponga?")
+
+    # sp=EgIQAQ== filtra a solo vídeos: evita caer en un canal o una playlist.
+    busqueda = "https://www.youtube.com/results?" + urllib.parse.urlencode(
+        {"search_query": q, "sp": "EgIQAQ=="}
+    )
+    destino, titulo = busqueda, None
+    try:
+        pet = urllib.request.Request(busqueda, headers={
+            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"),
+            "Accept-Language": "es-PE,es;q=0.9",
+        })
+        with urllib.request.urlopen(pet, timeout=12) as r:
+            html = r.read().decode("utf-8", "replace")
+        ids = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', html)
+        if ids:
+            destino = f"https://www.youtube.com/watch?v={ids[0]}"
+            t = re.search(r'"title":\{"runs":\[\{"text":"(.*?)"\}', html)
+            if t:
+                titulo = t.group(1).encode().decode("unicode_escape", "replace")
+    except Exception:
+        pass    # sin red o YouTube cambió el HTML: se abre la búsqueda y ya
+
+    try:
+        webbrowser.open(destino)
+    except Exception as e:
+        return _ok(f"No pude abrir el navegador: {e}")
+
+    if titulo:
+        return _ok(f"Sonando: {titulo}")
+    if destino == busqueda:
+        return _ok(f"No pude resolver el vídeo, así que te abrí la búsqueda de «{q}».")
+    return _ok(f"Puesto lo primero que salió de «{q}».")
+
+
 @tool("estado_maquina", "Uso de CPU, memoria y disco de la laptop.", {})
 async def estado_maquina(args: dict[str, Any]) -> dict[str, Any]:
     import psutil
@@ -125,6 +188,143 @@ async def guardar_en_vault(args: dict[str, Any]) -> dict[str, Any]:
         encoding="utf-8",
     )
     return _ok(f"Guardado en {carpeta}/{ruta.name}. Recuerda enlazarlo desde el MOC que toque.")
+
+
+@tool(
+    "enlazar_en_moc",
+    "Añade un enlace a una nota dentro de un MOC, bajo la sección que se indique. "
+    "Sin esto, cada nota nueva queda huérfana y no se encuentra navegando. "
+    "moc: el nombre del archivo sin .md, p. ej. moc-ciclo-10-unmsm",
+    {"moc": str, "nota": str, "descripcion": str, "seccion": str},
+)
+async def enlazar_en_moc(args: dict[str, Any]) -> dict[str, Any]:
+    """Cierra el bucle de `guardar_en_vault`.
+
+    Antes, Colita creaba la nota y decia "recuerda enlazarla desde el MOC" —
+    dejandole a Diego el trabajo aburrido, que es justo el que se olvida. Una
+    nota sin enlaces entrantes es una nota que no existe.
+    """
+    moc = _slug(str(args.get("moc", "")).replace(".md", ""))
+    nota = _slug(str(args.get("nota", "")).replace(".md", ""))
+    if not moc or not nota:
+        return _ok("Necesito el MOC y la nota.")
+
+    destino = next((p for p in VAULT.rglob(f"{moc}.md")), None)
+    if destino is None:
+        return _ok(f"No encuentro el MOC '{moc}'. Mira los que hay antes de inventarlo.")
+    if not any(VAULT.rglob(f"{nota}.md")):
+        return _ok(f"La nota '{nota}' no existe todavía. Créala primero.")
+
+    texto = destino.read_text(encoding="utf-8")
+    if f"[[{nota}]]" in texto or f"[[{nota}|" in texto:
+        return _ok(f"{nota} ya estaba enlazada en {destino.name}. No toqué nada.")
+
+    desc = str(args.get("descripcion", "")).strip()
+    linea = f"- [[{nota}]]" + (f" — {desc}" if desc else "")
+
+    seccion = str(args.get("seccion", "")).strip()
+    lineas = texto.splitlines()
+    puesto = None
+    if seccion:
+        # Debajo del encabezado pedido, al final de su bloque.
+        for i, l in enumerate(lineas):
+            if l.startswith("#") and seccion.lower() in l.lower():
+                j = i + 1
+                while j < len(lineas) and not lineas[j].startswith("#"):
+                    j += 1
+                while j > i + 1 and not lineas[j - 1].strip():
+                    j -= 1               # sin dejar huecos raros
+                puesto = j
+                break
+    if puesto is None:
+        # Sin sección: antes del "Ver también" final, que siempre cierra la nota.
+        for i in range(len(lineas) - 1, -1, -1):
+            if lineas[i].startswith("Ver también"):
+                puesto = i
+                while puesto > 0 and not lineas[puesto - 1].strip():
+                    puesto -= 1
+                break
+    if puesto is None:
+        puesto = len(lineas)
+
+    lineas.insert(puesto, linea)
+    destino.write_text("\n".join(lineas) + "\n", encoding="utf-8")
+    return _ok(f"Enlazada en {destino.name}: {linea}")
+
+
+@tool(
+    "salud_del_vault",
+    "Revisa el vault entero: cuántas notas hay, enlaces rotos y notas huérfanas "
+    "(sin ningún enlace entrante). Úsalo tras añadir varias notas.",
+    {},
+)
+async def salud_del_vault(args: dict[str, Any]) -> dict[str, Any]:
+    """Un enlace roto o una nota huérfana no dan error: solo se pierden."""
+    notas = list(VAULT.rglob("*.md"))
+    existentes = {p.stem for p in notas}
+    entrantes: dict[str, int] = {s: 0 for s in existentes}
+    rotos: list[str] = []
+
+    for p in notas:
+        # Las plantillas llevan marcadores a propósito.
+        if p.parent.name == "plantillas":
+            continue
+        for e in re.findall(r"\[\[([^\]|#]+)", p.read_text(encoding="utf-8")):
+            e = e.strip()
+            if e in existentes:
+                entrantes[e] += 1
+            else:
+                rotos.append(f"[[{e}]] en {p.name}")
+
+    huerfanas = sorted(s for s, n in entrantes.items() if n == 0)
+    partes = [f"{len(notas)} notas."]
+    if rotos:
+        partes.append(f"{len(rotos)} enlaces rotos (los primeros): " + "; ".join(rotos[:8]))
+        partes.append("Ojo: un enlace a una nota que aún no existe es válido si es un "
+                      "hueco declarado a propósito.")
+    else:
+        partes.append("Sin enlaces rotos.")
+    if huerfanas:
+        partes.append(f"{len(huerfanas)} notas sin enlaces entrantes: "
+                      + ", ".join(huerfanas[:10]))
+    else:
+        partes.append("Ninguna nota huérfana.")
+    return _ok(" ".join(partes))
+
+
+@tool(
+    "nota_de_clase",
+    "Crea la nota de una clase del ciclo en curso, con su plantilla, y la enlaza sola "
+    "desde el MOC del ciclo. curso: el nombre tal cual, p. ej. Análisis Bayesiano",
+    {"curso": str, "tema": str, "contenido": str},
+)
+async def nota_de_clase(args: dict[str, Any]) -> dict[str, Any]:
+    curso = str(args.get("curso", "")).strip()
+    tema = str(args.get("tema", "")).strip()
+    if not curso or not tema:
+        return _ok("Necesito el curso y el tema de la clase.")
+
+    carpeta = VAULT / "cursos"
+    carpeta.mkdir(exist_ok=True)
+    hoy = dt.date.today().isoformat()
+    nombre = _slug(f"{curso}-{hoy}-{tema}")
+    ruta = carpeta / f"{nombre}.md"
+    if ruta.exists():
+        return _ok(f"Ya existe {ruta.name}. Ábrela y añade ahí en vez de duplicar.")
+
+    ruta.write_text(
+        f"---\ntipo: clase\ncurso: {curso}\nestado: en-curso\ncreado: {hoy}\n"
+        f"tags: [clase, ciclo-10, unmsm]\n---\n\n"
+        f"# {curso} — {tema}\n\n"
+        f"Clase del `{hoy}`.\n\n"
+        f"## Lo que se vio\n\n{args.get('contenido', '').strip()}\n\n"
+        f"## Lo que no me quedó claro\n\n- \n\n"
+        f"## Qué tengo que practicar\n\n- \n\n"
+        f"Ver también: [[moc-ciclo-10-unmsm]] · [[malla-curricular-estadistica-unmsm]]\n",
+        encoding="utf-8",
+    )
+    return _ok(f"Creada cursos/{ruta.name}. Dime si quieres que la enlace desde el MOC "
+               f"del ciclo con `enlazar_en_moc`.")
 
 
 @tool("reindexar_vault", "Reconstruye el índice de búsqueda del vault tras añadir notas.", {})
@@ -259,14 +459,18 @@ servidor = create_sdk_mcp_server(
     name="colita",
     version="1.0.0",
     tools=[
-        volumen, abrir_app, estado_maquina,
-        guardar_en_vault, reindexar_vault,
+        volumen, abrir_app, poner_musica, estado_maquina,
+        guardar_en_vault, enlazar_en_moc, salud_del_vault, nota_de_clase,
+        reindexar_vault,
         crear_excel, crear_html, analizar_datos,
     ],
 )
 
 NOMBRES = [
-    "mcp__colita__volumen", "mcp__colita__abrir_app", "mcp__colita__estado_maquina",
-    "mcp__colita__guardar_en_vault", "mcp__colita__reindexar_vault",
+    "mcp__colita__volumen", "mcp__colita__abrir_app", "mcp__colita__poner_musica",
+    "mcp__colita__estado_maquina",
+    "mcp__colita__guardar_en_vault", "mcp__colita__enlazar_en_moc",
+    "mcp__colita__salud_del_vault", "mcp__colita__nota_de_clase",
+    "mcp__colita__reindexar_vault",
     "mcp__colita__crear_excel", "mcp__colita__crear_html", "mcp__colita__analizar_datos",
 ]
